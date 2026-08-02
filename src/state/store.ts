@@ -15,7 +15,8 @@ export type GhostState =
   | { kind: 'opening'; wallId: string; centerIn: number; widthIn: number; heightIn: number; sillIn: number; door: boolean; valid: boolean }
   | { kind: 'stair'; floor: FloorIndex; x: number; z: number; yawDeg: number; widthIn: number; runIn: number; flights: 1 | 2; valid: boolean }
   | { kind: 'region'; floor: FloorIndex; polygon: Vec2[]; valid: boolean }
-  | { kind: 'patch'; floor: FloorIndex; wallId: string; face: 'pos' | 'neg'; fromT: number; toT: number; y0: number; y1: number; valid: boolean };
+  | { kind: 'patch'; floor: FloorIndex; wallId: string; face: 'pos' | 'neg'; fromT: number; toT: number; y0: number; y1: number; valid: boolean }
+  | { kind: 'facegroup'; floor: FloorIndex; faces: { wallId: string; face: 'pos' | 'neg'; fromT: number; toT: number; y0: number; y1: number }[]; valid: boolean };
 
 export interface AppState {
   elements: PlacedElement[];

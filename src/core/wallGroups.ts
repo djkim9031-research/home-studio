@@ -265,6 +265,23 @@ export function regroupClearPatches(before: PlacedElement[], after: PlacedElemen
   return patches;
 }
 
+/** Every face span that belongs to `target`'s group — for previewing the whole
+ * continuous patch a paint click would cover. `plusSide` = the +normal side. */
+export function groupFaces(elements: PlacedElement[], floor: number, target: number): { wallId: string; plusSide: boolean; from: number; to: number }[] {
+  const rooms = roomsFor(elements, floor);
+  const out: { wallId: string; plusSide: boolean; from: number; to: number }[] = [];
+  for (const w of floorWalls(elements, floor)) {
+    const len = wallLen(w);
+    if (len < 1) continue;
+    for (const plusSide of [true, false]) {
+      for (const s of faceSegments(w, plusSide, rooms, len)) {
+        if (s.region === target && s.to - s.from > 1) out.push({ wallId: w.id, plusSide, from: s.from, to: s.to });
+      }
+    }
+  }
+  return out;
+}
+
 /** Span patches that paint every face in `target`'s group with `finish`. */
 export function paintGroupPatches(elements: PlacedElement[], floor: number, target: number, finish: { textureId: string; color: string }): GroupPatch[] {
   const rooms = detectEnclosedRegions(elements, floor);

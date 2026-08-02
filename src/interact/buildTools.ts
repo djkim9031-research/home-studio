@@ -2,7 +2,7 @@ import { DEFAULT_DOOR, DEFAULT_STAIR, DEFAULT_WALL_H, DEFAULT_WALL_T, DEFAULT_WI
 import { formatFeetInchesFull } from '../core/format';
 import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
-import { faceGroupTarget, paintGroupPatches, regroupClearPatches } from '../core/wallGroups';
+import { faceGroupTarget, groupFaces, paintGroupPatches, regroupClearPatches } from '../core/wallGroups';
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
 import type { GhostState } from '../state/store';
@@ -1099,6 +1099,7 @@ export class WallPaintTool implements Tool {
   private arm: WallPaintArm;
   private ctx: ToolContext;
   private downAt: { x: number; y: number } | null = null;
+  private hoverKey: string | null = null;
 
   constructor(arm: Partial<WallPaintArm>, ctx: ToolContext) {
     this.arm = { textureId: arm.textureId ?? 'paint', color: arm.color ?? '#e8dfd0' };
@@ -1121,10 +1122,25 @@ export class WallPaintTool implements Tool {
   onHover(_floor: Vec2 | null, ev: PointerEvent): void {
     const p = this.resolve(ev);
     if (!p) {
-      store.setGhost(null);
+      if (this.hoverKey !== null) {
+        this.hoverKey = null;
+        store.setGhost(null);
+      }
       return;
     }
-    store.setGhost({ kind: 'patch', floor: store.getState().activeFloor, wallId: p.wall.id, face: p.plusSide ? 'pos' : 'neg', fromT: 0, toT: wallLen(p.wall), y0: 0, y1: p.wall.heightIn, valid: true });
+    const s = store.getState();
+    const target = faceGroupTarget(s.elements, s.activeFloor, p.wall, p.plusSide, p.t);
+    const key = `${s.activeFloor}:${target}`;
+    if (key === this.hoverKey) return; // same group under the cursor — no rework
+    this.hoverKey = key;
+    // preview the ENTIRE continuous patch a click would paint, not just this face
+    const faces = groupFaces(s.elements, s.activeFloor, target)
+      .map((f) => {
+        const wall = s.elements.find((e): e is Wall => e.kind === 'wall' && e.id === f.wallId);
+        return wall ? { wallId: f.wallId, face: (f.plusSide ? 'pos' : 'neg') as 'pos' | 'neg', fromT: f.from, toT: f.to, y0: 0, y1: wall.heightIn } : null;
+      })
+      .filter((f): f is NonNullable<typeof f> => f !== null);
+    store.setGhost({ kind: 'facegroup', floor: s.activeFloor, faces, valid: true });
   }
 
   onDown(_floor: Vec2 | null, ev: PointerEvent): boolean {
@@ -1140,6 +1156,7 @@ export class WallPaintTool implements Tool {
     const down = this.downAt;
     this.downAt = null;
     store.setGhost(null);
+    this.hoverKey = null;
     if (!down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
     const p = this.resolve(ev);
     if (!p) {
@@ -1165,6 +1182,7 @@ export class WallPaintTool implements Tool {
   }
 
   cancel(): void {
+    this.hoverKey = null;
     store.setGhost(null);
   }
 }

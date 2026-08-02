@@ -143,6 +143,25 @@ export class GhostVisual {
       mesh.rotation.y = -Math.atan2(wall.b.z - wall.a.z, wall.b.x - wall.a.x) + (ghost.face === 'pos' ? 0 : Math.PI);
       this.group.add(mesh);
     }
+
+    if (ghost.kind === 'facegroup') {
+      // preview the whole continuous patch: a translucent decal on each face
+      for (const f of ghost.faces) {
+        const wall = elements.find((e): e is Wall => e.kind === 'wall' && e.id === f.wallId);
+        if (!wall) continue;
+        const baseY = floorBaseIn(elements, wall.floor);
+        const d = wallDir(wall);
+        const sign = f.face === 'pos' ? 1 : -1;
+        const nrm = { x: -d.z * sign, z: d.x * sign };
+        const mid = wallPointAt(wall, (f.fromT + f.toT) / 2);
+        const off = wall.thickIn / 2 + 0.6;
+        const geo = new THREE.PlaneGeometry(i2m(f.toT - f.fromT), i2m(f.y1 - f.y0));
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(i2m(mid.x + nrm.x * off), i2m(baseY + (f.y0 + f.y1) / 2), i2m(mid.z + nrm.z * off));
+        mesh.rotation.y = -Math.atan2(wall.b.z - wall.a.z, wall.b.x - wall.a.x) + (f.face === 'pos' ? 0 : Math.PI);
+        this.group.add(mesh);
+      }
+    }
   }
 
   private showChip(chip: CSS2DObject, text: string, xIn: number, yIn: number, zIn: number): void {

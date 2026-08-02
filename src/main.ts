@@ -483,6 +483,18 @@ if (params.get('qa') === 'rectio') {
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
 }
+if (params.get('qa') === 'painthover') {
+  // arm Paint, hover an exterior face — the ghost should cover the whole group
+  setTimeout(() => {
+    pointer.setTool(new WallPaintTool({ textureId: 'brick', color: '#c76f4a' }, toolCtx));
+    viewport.dispatchEvent(new PointerEvent('pointermove', { clientX: 700, clientY: 470, pointerId: 11, bubbles: true }));
+    setTimeout(() => {
+      const g = store.getState().ghost;
+      const n = g && g.kind === 'facegroup' ? g.faces.length : 0;
+      document.title = `QAPAINTHOVER ghost=${g?.kind} faces=${n}`;
+    }, 300);
+  }, 3000);
+}
 if (params.get('qa') === 'partition') {
   // a room with a free-standing interior partition: paint the interior; the
   // partition's exposed end cap should take the room's interior finish
