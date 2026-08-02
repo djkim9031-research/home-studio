@@ -106,30 +106,33 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
   }
   if (startX < 0) return { ok: false, reason: 'tiny' };
 
+  // Moore-neighbor boundary trace, clockwise (screen coords: x right, z down)
   const DIRS = [
-    [1, 0],
-    [1, 1],
-    [0, 1],
-    [-1, 1],
-    [-1, 0],
-    [-1, -1],
-    [0, -1],
-    [1, -1],
+    [1, 0], // E
+    [1, 1], // SE
+    [0, 1], // S
+    [-1, 1], // SW
+    [-1, 0], // W
+    [-1, -1], // NW
+    [0, -1], // N
+    [1, -1], // NE
   ];
   const contour: Vec2[] = [];
   let cx = startX;
   let cz = startZ;
-  let dirFrom = 6; // came from above
+  // start cell is topmost-leftmost: its W neighbor is empty — treat W as the
+  // backtrack direction and scan clockwise from just past it
+  let back = 4;
   const maxSteps = W * H * 4;
   for (let step = 0; step < maxSteps; step++) {
     contour.push({ x: minX + (cx + 0.5) * CELL, z: minZ + (cz + 0.5) * CELL });
     let found = false;
     for (let k = 0; k < 8; k++) {
-      const d = (dirFrom + 6 + k) % 8; // start scanning just past where we came from
+      const d = (back + 1 + k) % 8; // clockwise, starting next to the backtrack
       const nx = cx + DIRS[d][0];
       const nz = cz + DIRS[d][1];
       if (at2(nx, nz)) {
-        dirFrom = (d + 4) % 8;
+        back = (d + 4) % 8; // the cell we came from, seen from the new cell
         cx = nx;
         cz = nz;
         found = true;

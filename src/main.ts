@@ -404,6 +404,20 @@ if (params.get('qa') === 'select') {
     if (wall) store.select(wall.id);
   }, 2500);
 }
+if (params.get('qa') === 'fillvis') {
+  // visual repro: drop the seed slab, then fill with RED TILE — the placed
+  // slab must show that finish
+  setTimeout(() => {
+    const slabs = store.getState().elements.filter((e) => e.kind === 'slab').map((e) => e.id);
+    store.deleteElements(slabs);
+    pointer.setTool(new FloorFillTool({ textureId: 'tile', color: '#cc4444' }, toolCtx));
+    const click = (x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+      viewport.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+    };
+    click(850, 500);
+  }, 3000);
+}
 if (params.get('qa') === 'fill') {
   // flooring fill: click the lawn (must refuse), then inside the room (must
   // place); report slab count + the refusal toast
