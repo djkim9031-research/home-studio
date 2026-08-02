@@ -212,9 +212,12 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     return m;
   };
   const faceAt = (spans: FaceSpan[] | undefined, whole: WallFace | undefined, t: number): THREE.MeshStandardMaterial => {
+    // spans are the current paint model. Once a face has a spans array, it
+    // fully describes that face — the legacy whole-face finish is ignored so
+    // repainting can't leave old color showing through the gaps.
     if (spans) {
       const sp = spans.find((s) => t >= Math.min(s.from, s.to) - 0.01 && t <= Math.max(s.from, s.to) + 0.01);
-      if (sp) return finishMat(sp);
+      return sp ? finishMat(sp) : mat;
     }
     return finishMat(whole);
   };

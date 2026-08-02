@@ -659,74 +659,47 @@ export class WallpaperTool implements Tool {
       return { x: -d.z, z: d.x };
     };
 
-    let targets: Wall[] = [];
-    let regionPolygon: Vec2[] | null = null;
-    // Clicking a wall face paints THE SIDE YOU CLICKED: if that side faces a
-    // room, the whole room papers; if it faces outdoors, the wall's whole
-    // connected run paints its outward faces. Clicking open floor inside a
-    // room papers that room.
+    // The floor's paint GROUPS are: the outside (exterior) and one interior
+    // per enclosed room. Classify the clicked face into a group, then paint
+    // every wall face that belongs to that same group.
+    const regions = detectEnclosedRegions(s.elements, s.activeFloor);
+    const roomOf = (p: Vec2): Vec2[] | null => regions.find((r) => pointInPolygon(p, r)) ?? null;
+
+    // where did the click land — a point identifying the clicked face's side?
     const hit = this.ctx.pickWall(ev);
     const floorDist = this.ctx.floorHitDistance(ev);
-    let clickedRegionSeed: Vec2 | null = floor;
-    let exteriorRun = false;
+    let facePoint: Vec2 | null = null;
     if (hit && (floorDist === null || hit.distance < floorDist - 0.02)) {
       const w = walls.find((x) => x.id === hit.wallId);
       if (!w) return;
       const n = nPosOf(w);
       const proj = projectOnWall(w, hit.point);
       const at = wallPointAt(w, Math.max(0, Math.min(wallLen(w), proj.t)));
-      // the visible face is always on the CAMERA's side of the wall plane
-      // (hit-point offsets mislead on top-cap hits)
-      const cam = this.ctx.cameraPlanePos();
-      const sideSign: 1 | -1 = (cam.x - at.x) * n.x + (cam.z - at.z) * n.z >= 0 ? 1 : -1;
-      // a point just off the clicked face
-      clickedRegionSeed = {
-        x: at.x + n.x * (w.thickIn / 2 + 5) * sideSign,
-        z: at.z + n.z * (w.thickIn / 2 + 5) * sideSign,
-      };
-      const region = fillRegion(s.elements, s.activeFloor, clickedRegionSeed);
-      if (region.ok) {
-        // the clicked side faces a room — paper every wall bordering it,
-        // interior partitions included (the per-length matching filters faces)
-        targets = walls;
-        regionPolygon = region.polygon;
-      } else {
-        // exterior face — paint the whole connected shell's outward faces
-        targets = connectedWalls(walls, hit.wallId);
-        exteriorRun = true;
+      // which side of the wall was clicked: the hit point itself when it lies
+      // clearly off the centerline, else the camera side (top-cap hits)
+      const perp = (hit.point.x - at.x) * n.x + (hit.point.z - at.z) * n.z;
+      let sign: 1 | -1;
+      if (Math.abs(perp) > 1) sign = perp >= 0 ? 1 : -1;
+      else {
+        const cam = this.ctx.cameraPlanePos();
+        sign = (cam.x - at.x) * n.x + (cam.z - at.z) * n.z >= 0 ? 1 : -1;
       }
-    } else {
-      const region = floor ? fillRegion(s.elements, s.activeFloor, floor) : ({ ok: false } as const);
-      if (region.ok) {
-        targets = walls;
-        regionPolygon = region.polygon;
-      } else if (hit) {
-        targets = connectedWalls(walls, hit.wallId);
-        exteriorRun = true;
-      } else {
-        this.ctx.toast(
-          walls.length
-            ? 'Click inside a walled area to paper a room, or click a wall to paint its whole run.'
-            : 'Draw some walls first.',
-        );
-        return;
-      }
+      facePoint = { x: at.x + n.x * (w.thickIn / 2 + 6) * sign, z: at.z + n.z * (w.thickIn / 2 + 6) * sign };
+    } else if (floor) {
+      facePoint = floor; // clicking open floor inside a room
     }
-    void exteriorRun;
-    void clickedRegionSeed;
-    if (!targets.length) {
-      this.ctx.toast('No walls there to paint.');
+    if (!facePoint) {
+      this.ctx.toast(
+        walls.length ? 'Click a wall face, or inside a room, to paint that group.' : 'Draw some walls first.',
+      );
       return;
     }
 
-    // Paint each wall FACE run by run. Walk the length; a run matches when a
-    // point just off that face satisfies the paint context (interior: inside
-    // the clicked room; exterior: outside every room). A wall that is partly
-    // in and partly out therefore gets two spans, split at the crossing.
+    const targetRoom = roomOf(facePoint); // null = exterior group
     const finish = { textureId: this.arm.textureId, color: this.arm.color };
-    const regions = detectEnclosedRegions(s.elements, s.activeFloor);
     const matches = (p: Vec2): boolean =>
-      regionPolygon ? pointInPolygon(p, regionPolygon) : !regions.some((r) => pointInPolygon(p, r));
+      targetRoom ? pointInPolygon(p, targetRoom) : !regions.some((r) => pointInPolygon(p, r));
+    const targets = walls;
     const faceSampleAt = (w: Wall, towardPos: boolean, t: number): Vec2 => {
       const d = wallDir(w);
       const n = { x: -d.z, z: d.x };
@@ -737,19 +710,30 @@ export class WallpaperTool implements Tool {
     };
     const matchingRanges = (w: Wall, towardPos: boolean): [number, number][] => {
       const L = wallLen(w);
-      const step = 4; // inches
+      const step = 3; // inches
+      // sample the whole length, then find contiguous matching runs; a lone
+      // outlier sample (grid/boundary noise) is bridged so a face that is
+      // wholly in one group becomes a single clean span
+      const n = Math.max(2, Math.ceil(L / step));
+      const on: boolean[] = [];
+      for (let i = 0; i <= n; i++) on.push(matches(faceSampleAt(w, towardPos, (L * i) / n)));
+      for (let i = 1; i < n; i++) if (!on[i] && on[i - 1] && on[i + 1]) on[i] = true; // bridge singletons
       const ranges: [number, number][] = [];
-      let runStart: number | null = null;
-      for (let t = 0; t <= L + 0.001; t += step) {
-        const tt = Math.min(t, L);
-        const on = matches(faceSampleAt(w, towardPos, tt));
-        if (on && runStart === null) runStart = tt;
-        else if (!on && runStart !== null) {
-          ranges.push([runStart, tt]);
-          runStart = null;
+      let start: number | null = null;
+      for (let i = 0; i <= n; i++) {
+        const t = (L * i) / n;
+        if (on[i] && start === null) start = t;
+        else if (!on[i] && start !== null) {
+          ranges.push([start, t]);
+          start = null;
         }
       }
-      if (runStart !== null) ranges.push([runStart, L]);
+      if (start !== null) ranges.push([start, L]);
+      // snap runs that reach the ends to the exact ends
+      for (const r of ranges) {
+        if (r[0] <= step * 1.5) r[0] = 0;
+        if (r[1] >= L - step * 1.5) r[1] = L;
+      }
       return ranges;
     };
 
@@ -769,7 +753,7 @@ export class WallpaperTool implements Tool {
     }
     if (!updates.length) {
       this.ctx.toast(
-        regionPolygon ? 'Nothing to paper there.' : 'Those walls sit between rooms — paper them from inside a room.',
+        targetRoom ? 'Nothing to paper there.' : 'Nothing exterior to paint there.',
       );
       return;
     }
