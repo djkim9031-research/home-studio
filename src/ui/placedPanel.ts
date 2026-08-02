@@ -12,6 +12,7 @@ const CAT_LABELS: Record<BuildCategory, string> = {
   openings: 'Doors & Windows',
   stairs: 'Stairs',
   flooring: 'Flooring',
+  paint: 'Paint',
   wallpaper: 'Wallpaper',
   rooms: 'Rooms',
 };

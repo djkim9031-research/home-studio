@@ -9,6 +9,7 @@ export type ArmSpec =
   | { tool: 'opening'; door: boolean; widthIn: number; heightIn: number; sillIn: number; styleId: string; color: string; mainEntrance?: boolean }
   | { tool: 'stair'; widthIn: number; runIn: number; flights: 1 | 2; styleId: string; textureId: string; color: string }
   | { tool: 'fill'; textureId: string; color: string }
+  | { tool: 'paint'; textureId: string; color: string }
   | { tool: 'wallpaper'; textureId: string; color: string; widthIn: number; heightIn: number; offXIn: number; offYIn: number }
   | { tool: 'room' };
 
@@ -27,6 +28,7 @@ const CATS: { key: string; label: string }[] = [
   { key: 'openings', label: 'Doors & Windows' },
   { key: 'stairs', label: 'Stairs' },
   { key: 'flooring', label: 'Flooring' },
+  { key: 'paint', label: 'Paint' },
   { key: 'wallpaper', label: 'Wallpaper' },
   { key: 'rooms', label: 'Rooms' },
 ];
@@ -236,6 +238,34 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     byCat.set('flooring', [
       card(THUMBS.floor, 'Flooring — click inside walls', [tex.el, col.el], () => ({
         tool: 'fill',
+        textureId: tex.get(),
+        color: col.get(),
+      })),
+    ]);
+  }
+
+  {
+    const tex = selInput('finish', WALL_TEXTURES);
+    const col = colorInput('#e8dfd0');
+    const swatches = document.createElement('span');
+    swatches.className = 'hs-pal-field hs-swatches';
+    for (const c of ['#f2eee6', '#dfe8ee', '#e8dfd0', '#d8e2d0', '#e6d6d2', '#d9d2e6', '#c76f4a', '#5b7a99']) {
+      const b = document.createElement('button');
+      b.className = 'hs-swatch';
+      b.style.background = c;
+      b.title = c;
+      b.addEventListener('pointerdown', (e) => e.stopPropagation());
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const input = col.el.querySelector('input') as HTMLInputElement;
+        input.value = c;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      swatches.appendChild(b);
+    }
+    byCat.set('paint', [
+      card(THUMBS.wall, 'Paint — click a wall face to fill its whole interior or exterior group', [tex.el, col.el, swatches], () => ({
+        tool: 'paint',
         textureId: tex.get(),
         color: col.get(),
       })),

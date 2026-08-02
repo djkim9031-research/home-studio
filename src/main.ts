@@ -12,7 +12,7 @@ import { moonState, sunPosition } from './scene/sun';
 import { i2m } from './constants';
 import * as store from './state/store';
 import { exportProject, getProject, listProjects, saveProject } from './state/projects';
-import { FloorFillTool, OpeningTool, RoomTool, SelectTool, StairTool, WallpaperTool, WallTool, type FinetuneRequest, type Tool, type ToolContext } from './interact/buildTools';
+import { FloorFillTool, OpeningTool, RoomTool, SelectTool, StairTool, WallPaintTool, WallpaperTool, WallTool, type FinetuneRequest, type Tool, type ToolContext } from './interact/buildTools';
 import { PointerController } from './interact/pointer';
 import { installKeyboard } from './interact/keyboard';
 import { buildLanding } from './ui/landing';
@@ -157,6 +157,9 @@ function armFromSpec(spec: ArmSpec, card: HTMLElement): void {
       break;
     case 'fill':
       tool = new FloorFillTool(spec, toolCtx);
+      break;
+    case 'paint':
+      tool = new WallPaintTool(spec, toolCtx);
       break;
     case 'wallpaper':
       tool = new WallpaperTool(spec, toolCtx);
@@ -471,6 +474,37 @@ if (params.get('qa') === 'rectio') {
     const faces = walls.map((w) => (w.kind === 'wall' ? `${w.facePos?.textureId ?? '-'}|${w.faceNeg?.textureId ?? '-'}` : '')).join(' ');
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
+}
+if (params.get('qa') === 'paintgroup') {
+  // two rooms sharing a wall: paint each interior + the exterior via groups
+  setTimeout(async () => {
+    const { detectEnclosedRegions } = await import('./core/regionFill');
+    const { paintGroupPatches } = await import('./core/wallGroups');
+    store.clearAll();
+    const mk = (a: { x: number; z: number }, b: { x: number; z: number }) => ({ kind: 'wall', floor: 0, a, b, heightIn: 96, thickIn: 5, color: '#f2eee6', textureId: 'paint' }) as never;
+    store.placeElementsBatch([
+      mk({ x: 0, z: 0 }, { x: 192, z: 0 }), mk({ x: 192, z: 0 }, { x: 192, z: 144 }), mk({ x: 192, z: 144 }, { x: 0, z: 144 }), mk({ x: 0, z: 144 }, { x: 0, z: 0 }),
+      mk({ x: 192, z: 0 }, { x: 384, z: 0 }), mk({ x: 384, z: 0 }, { x: 384, z: 144 }), mk({ x: 384, z: 144 }, { x: 192, z: 144 }),
+    ]);
+    const apply = (target: number, finish: { textureId: string; color: string }) => {
+      const patches = paintGroupPatches(store.getState().elements, 0, target, finish);
+      store.updateElementsBatch(
+        patches.map((pt) => {
+          const patch: Record<string, unknown> = {};
+          if (pt.facePosSpans) patch.facePosSpans = pt.facePosSpans;
+          if (pt.faceNegSpans) patch.faceNegSpans = pt.faceNegSpans;
+          return { id: pt.id, patch: patch as never };
+        }),
+      );
+      return patches.length;
+    };
+    const rooms = detectEnclosedRegions(store.getState().elements, 0).length;
+    const e = apply(-1, { textureId: 'brick', color: '#c76f4a' });
+    const r0 = apply(0, { textureId: 'stripes', color: '#c0392b' });
+    const r1 = apply(1, { textureId: 'stripes', color: '#2a6099' });
+    document.title = `QAPAINT rooms=${rooms} ext=${e} r0=${r0} r1=${r1}`;
+    rig.toDefaultView();
+  }, 2600);
 }
 if (params.get('qa') === 'finetune') {
   // arm a door, click a wall → the finetuner should open WITHOUT placing yet

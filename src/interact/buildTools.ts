@@ -2,6 +2,7 @@ import { DEFAULT_DOOR, DEFAULT_STAIR, DEFAULT_WALL_H, DEFAULT_WALL_T, DEFAULT_WI
 import { formatFeetInchesFull } from '../core/format';
 import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
+import { faceGroupTarget, paintGroupPatches } from '../core/wallGroups';
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
 import type { GhostState } from '../state/store';
@@ -942,6 +943,90 @@ export class WallpaperTool implements Tool {
     const y1 = Math.min(w.heightIn, y0 + this.arm.heightIn);
     if (toT - fromT < 1 || y1 - y0 < 1) return null;
     return { wall: w, face, fromT, toT, y0, y1 };
+  }
+
+  cancel(): void {
+    store.setGhost(null);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wall paint: click a wall face to fill its whole interior/exterior group,
+// classified live from the current rooms (so joined walls regroup correctly).
+// ---------------------------------------------------------------------------
+
+export interface WallPaintArm {
+  textureId: string;
+  color: string;
+}
+
+export class WallPaintTool implements Tool {
+  private arm: WallPaintArm;
+  private ctx: ToolContext;
+  private downAt: { x: number; y: number } | null = null;
+
+  constructor(arm: Partial<WallPaintArm>, ctx: ToolContext) {
+    this.arm = { textureId: arm.textureId ?? 'paint', color: arm.color ?? '#e8dfd0' };
+    this.ctx = ctx;
+  }
+
+  private resolve(ev: PointerEvent): { wall: Wall; plusSide: boolean; t: number } | null {
+    const hit = this.ctx.pickWall(ev);
+    if (!hit) return null;
+    const wall = store.getState().elements.find((e): e is Wall => e.kind === 'wall' && e.id === hit.wallId);
+    if (!wall) return null;
+    const d = wallDir(wall);
+    const relx = hit.point.x - wall.a.x;
+    const relz = hit.point.z - wall.a.z;
+    const plusSide = relx * -d.z + relz * d.x > 0;
+    const t = Math.max(0, Math.min(wallLen(wall), relx * d.x + relz * d.z));
+    return { wall, plusSide, t };
+  }
+
+  onHover(_floor: Vec2 | null, ev: PointerEvent): void {
+    const p = this.resolve(ev);
+    if (!p) {
+      store.setGhost(null);
+      return;
+    }
+    store.setGhost({ kind: 'patch', floor: store.getState().activeFloor, wallId: p.wall.id, face: p.plusSide ? 'pos' : 'neg', fromT: 0, toT: wallLen(p.wall), y0: 0, y1: p.wall.heightIn, valid: true });
+  }
+
+  onDown(_floor: Vec2 | null, ev: PointerEvent): boolean {
+    this.downAt = { x: ev.clientX, y: ev.clientY };
+    return this.resolve(ev) !== null;
+  }
+
+  onMove(_floor: Vec2 | null, ev: PointerEvent): void {
+    this.onHover(_floor, ev);
+  }
+
+  onUp(_floor: Vec2 | null, ev: PointerEvent): void {
+    const down = this.downAt;
+    this.downAt = null;
+    store.setGhost(null);
+    if (!down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
+    const p = this.resolve(ev);
+    if (!p) {
+      this.ctx.toast('Click a wall face to paint its group.');
+      return;
+    }
+    const s = store.getState();
+    const target = faceGroupTarget(s.elements, s.activeFloor, p.wall, p.plusSide, p.t);
+    const patches = paintGroupPatches(s.elements, s.activeFloor, target, this.arm);
+    if (!patches.length) {
+      this.ctx.toast('Nothing to paint here.');
+      return;
+    }
+    store.updateElementsBatch(
+      patches.map((pt) => {
+        const patch: Partial<PlacedElement> = {};
+        if (pt.facePosSpans) (patch as { facePosSpans?: FaceSpan[] }).facePosSpans = pt.facePosSpans;
+        if (pt.faceNegSpans) (patch as { faceNegSpans?: FaceSpan[] }).faceNegSpans = pt.faceNegSpans;
+        return { id: pt.id, patch };
+      }),
+    );
+    this.ctx.toast(target < 0 ? 'Painted the exterior.' : 'Painted the room interior.');
   }
 
   cancel(): void {

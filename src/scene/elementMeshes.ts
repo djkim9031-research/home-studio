@@ -253,8 +253,10 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     scaleBoxUV(geo, L * rep, (y1 - y0) * rep);
     // box material order: +x, -x, +y, -y, +z, -z. The mesh's yaw maps its
     // local -z onto the plan +normal (-dz, dx), so facePos → the -z face.
-    // The ±x length-end caps take the exterior finish so corners stay painted.
-    const m = new THREE.Mesh(geo, [capMat, capMat, mat, mat, matNeg, matPos]);
+    // The thickness dimension (both length-end caps + the top) carries the
+    // exterior finish, so exterior paint wraps the edges while interior paint
+    // stays on its flat inner surface only.
+    const m = new THREE.Mesh(geo, [capMat, capMat, capMat, mat, matNeg, matPos]);
     const mid = wallPointAt(wall, midT);
     m.position.set(i2m(mid.x), i2m(baseY + (y0 + y1) / 2), i2m(mid.z));
     m.rotation.y = yaw;
@@ -309,7 +311,7 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     if (here.length < 2) return; // nothing to join
     if (here.some((e) => e.id < wall.id)) return; // a lower-id wall owns this corner
     const geo = new THREE.BoxGeometry(i2m(wall.thickIn), i2m(wall.heightIn), i2m(wall.thickIn));
-    const post = new THREE.Mesh(geo, [exteriorMat, exteriorMat, mat, mat, exteriorMat, exteriorMat]);
+    const post = new THREE.Mesh(geo, [exteriorMat, exteriorMat, exteriorMat, mat, exteriorMat, exteriorMat]);
     post.position.set(i2m(p.x), i2m(baseY + wall.heightIn / 2), i2m(p.z));
     post.castShadow = true;
     post.receiveShadow = true;

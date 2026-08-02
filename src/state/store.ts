@@ -202,6 +202,15 @@ export function setMainEntrance(id: string | null): void {
   emit({ kind: 'items', changedIds: changed });
 }
 
+/** Apply many element patches as ONE undo step (e.g. painting a whole group). */
+export function updateElementsBatch(updates: { id: string; patch: Partial<PlacedElement> }[]): void {
+  if (!updates.length) return;
+  const map = new Map(updates.map((u) => [u.id, u.patch]));
+  history.push(state.elements);
+  state.elements = state.elements.map((e) => (map.has(e.id) ? ({ ...e, ...map.get(e.id), id: e.id, kind: e.kind } as PlacedElement) : e));
+  emit({ kind: 'items', changedIds: updates.map((u) => u.id) });
+}
+
 /** Deleting a wall cascades to the openings it carries. */
 export function deleteElements(ids: string[]): void {
   if (!ids.length) return;
