@@ -662,9 +662,6 @@ export class WallpaperTool implements Tool {
     // The floor's paint GROUPS are: the outside (exterior) and one interior
     // per enclosed room. Classify the clicked face into a group, then paint
     // every wall face that belongs to that same group.
-    const regions = detectEnclosedRegions(s.elements, s.activeFloor);
-    const roomOf = (p: Vec2): Vec2[] | null => regions.find((r) => pointInPolygon(p, r)) ?? null;
-
     // where did the click land — a point identifying the clicked face's side?
     const hit = this.ctx.pickWall(ev);
     const floorDist = this.ctx.floorHitDistance(ev);
@@ -695,7 +692,12 @@ export class WallpaperTool implements Tool {
       return;
     }
 
-    const targetRoom = roomOf(facePoint); // null = exterior group
+    // The interior group is EXACTLY the room the click sits in — the same
+    // fillRegion used for that room's floor and label, so walls, floor and
+    // label are one and the same interior. Outside any room is the exterior.
+    const clickedRoom = fillRegion(s.elements, s.activeFloor, facePoint);
+    const targetRoom = clickedRoom.ok ? clickedRoom.polygon : null;
+    const regions = detectEnclosedRegions(s.elements, s.activeFloor);
     const finish = { textureId: this.arm.textureId, color: this.arm.color };
     const matches = (p: Vec2): boolean =>
       targetRoom ? pointInPolygon(p, targetRoom) : !regions.some((r) => pointInPolygon(p, r));
