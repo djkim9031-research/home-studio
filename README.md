@@ -24,8 +24,9 @@ real sun that casts real shadows for any date and time you pick.
   - **Stairs**: width, run, one flight or a U-turn, open or closed risers,
     tread finish and color. They connect the floor you're on to the one above.
   - **Flooring**: once walls enclose an area, one click floors the whole room —
-    oak, tile, carpet, or concrete, tinted any color. Filling an already-floored
-    area replaces the old floor.
+    oak, tile, carpet, or concrete, tinted any color. Rooms are bounded purely
+    by the walls you draw, so a doorway gap keeps a space as one area; the same
+    wall boundaries drive wall painting. Re-flooring an area replaces the old floor.
   - **Wallpaper**: paint one side of a wall at a time — click inside a room to
     paper its interior faces (partitions included), or click an outer face to
     paint the whole connected exterior shell. Inside and outside are separate

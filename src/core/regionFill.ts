@@ -4,10 +4,6 @@ import { wallLen } from './validity';
 /** Grid resolution for the flood fill, inches per cell. */
 const CELL = 3;
 const SIMPLIFY_TOL = 2.8; // inches — over half a cell-diagonal so stair-steps flatten
-/** virtual divider band half-width (open wall ends → dividing line) */
-const VIRT_R = CELL * 0.9;
-/** how far an open wall end may project its dividing line */
-const DIVIDER_MAX = 1200; // inches
 
 export type FillResult = { ok: true; polygon: Vec2[] } | { ok: false; reason: 'open' | 'no-walls' | 'tiny' };
 
@@ -21,81 +17,6 @@ interface Grid {
 
 function floorWalls(elements: PlacedElement[], floor: number): Wall[] {
   return elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === floor && wallLen(e) > 1);
-}
-
-function distPointSeg(px: number, pz: number, a: Vec2, b: Vec2): number {
-  const abx = b.x - a.x;
-  const abz = b.z - a.z;
-  const ab2 = abx * abx + abz * abz || 1;
-  const t = Math.max(0, Math.min(1, ((px - a.x) * abx + (pz - a.z) * abz) / ab2));
-  return Math.hypot(px - (a.x + abx * t), pz - (a.z + abz * t));
-}
-
-/** Wall endpoints not welded to another wall (and not T-joined into one):
- * an open partition end. Each carries the direction the wall points out of. */
-function danglingEnds(walls: Wall[]): { p: Vec2; dir: Vec2; thickIn: number }[] {
-  const out: { p: Vec2; dir: Vec2; thickIn: number }[] = [];
-  for (const w of walls) {
-    for (const [p, other] of [
-      [w.a, w.b],
-      [w.b, w.a],
-    ] as [Vec2, Vec2][]) {
-      let attached = false;
-      for (const o of walls) {
-        if (o === w) continue;
-        if (Math.hypot(o.a.x - p.x, o.a.z - p.z) <= 6 || Math.hypot(o.b.x - p.x, o.b.z - p.z) <= 6) {
-          attached = true;
-          break;
-        }
-        if (distPointSeg(p.x, p.z, o.a, o.b) <= o.thickIn / 2 + 2) {
-          attached = true;
-          break;
-        }
-      }
-      if (attached) continue;
-      const len = Math.hypot(p.x - other.x, p.z - other.z) || 1;
-      out.push({ p, dir: { x: (p.x - other.x) / len, z: (p.z - other.z) / len }, thickIn: w.thickIn });
-    }
-  }
-  return out;
-}
-
-/** Stamp dividing lines from open wall ends: cast along the wall direction
- * until a real wall is hit; the line becomes a thin virtual barrier. Rays
- * that never land on a wall stamp nothing (a truly open end divides nothing). */
-function stampDividers(g: Grid, real: Uint8Array, walls: Wall[]): void {
-  const { blocked, W, H, minX, minZ } = g;
-  for (const { p, dir, thickIn } of danglingEnds(walls)) {
-    const pending: number[] = [];
-    let hit = false;
-    // the hit test only arms past the source wall's own blocking band (the
-    // first probes sit inside it), but stamping starts immediately so a small
-    // gap between this end and a nearby wall still seals
-    const t0 = thickIn / 2 + CELL * 1.6;
-    for (let t = CELL * 0.5; t <= DIVIDER_MAX; t += CELL * 0.5) {
-      const px = p.x + dir.x * t;
-      const pz = p.z + dir.z * t;
-      const gx = Math.floor((px - minX) / CELL);
-      const gz = Math.floor((pz - minZ) / CELL);
-      if (gx < 0 || gz < 0 || gx >= W || gz >= H) break; // left the build — open
-      if (t >= t0 && real[gz * W + gx]) {
-        hit = true;
-        break;
-      }
-      // 2×2 stamp so the line blocks the 4-connected flood watertight
-      for (const [ox, oz] of [
-        [0, 0],
-        [1, 0],
-        [0, 1],
-        [1, 1],
-      ]) {
-        const nx = Math.floor((px - minX) / CELL - 0.5) + ox;
-        const nz = Math.floor((pz - minZ) / CELL - 0.5) + oz;
-        if (nx >= 0 && nz >= 0 && nx < W && nz < H) pending.push(nz * W + nx);
-      }
-    }
-    if (hit) for (const i of pending) blocked[i] = 1;
-  }
 }
 
 /** Occupancy grid over a floor's walls: cells within half a wall's thickness
@@ -235,9 +156,8 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
   if (!walls.length) return { ok: false, reason: 'no-walls' };
   const g = buildOccupancy(walls);
   if (!g) return { ok: false, reason: 'open' };
-  // open partition ends divide the space along their projected line
-  const real = g.blocked.slice();
-  stampDividers(g, real, walls);
+  // regions are bounded ONLY by real walls — a gap (doorway) lets the flood
+  // through, so a wall that doesn't fully enclose an area doesn't divide it
   const { blocked, W, H, minX, minZ } = g;
 
   const sx = Math.floor((at.x - minX) / CELL);
