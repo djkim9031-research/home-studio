@@ -3,7 +3,7 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { COLORS, i2m, IN, JOIST_T } from '../constants';
 import { finishMaterial, finishRepeatPerIn } from '../data/registry';
 import { openingsOf, wallDir, wallLen, wallPointAt } from '../core/validity';
-import { finishFacingPoint } from '../core/wallGroups';
+import { edgeFinishFacing, finishFacingPoint } from '../core/wallGroups';
 import {
   floorBaseIn,
   polygonSqft,
@@ -305,11 +305,12 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     if (here.length < 2) return; // nothing to join
     if (here.some((e) => e.id < wall.id)) return; // a lower-id wall owns this corner
     const geo = new THREE.BoxGeometry(i2m(wall.thickIn), i2m(wall.heightIn), i2m(wall.thickIn));
-    const px = edgeMat({ x: p.x + off, z: p.z });
-    const nx = edgeMat({ x: p.x - off, z: p.z });
-    const pz = edgeMat({ x: p.x, z: p.z + off });
-    const nz = edgeMat({ x: p.x, z: p.z - off });
-    const post = new THREE.Mesh(geo, [px, nx, mat, mat, pz, nz]);
+    // each post side continues the wall face it is coplanar with
+    const postMat = (dx: number, dz: number): THREE.MeshStandardMaterial => {
+      const f = edgeFinishFacing(elements, wall.floor, p, dx, dz);
+      return f ? finishMat(f) : mat;
+    };
+    const post = new THREE.Mesh(geo, [postMat(1, 0), postMat(-1, 0), mat, mat, postMat(0, 1), postMat(0, -1)]);
     post.position.set(i2m(p.x), i2m(baseY + wall.heightIn / 2), i2m(p.z));
     post.castShadow = true;
     post.receiveShadow = true;

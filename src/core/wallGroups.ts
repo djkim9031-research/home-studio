@@ -144,6 +144,30 @@ export function finishFacingPoint(elements: PlacedElement[], floor: number, p: V
   return regionFinish(elements, floor, regionAt(rooms, p));
 }
 
+/** The finish of the wall face that meets `p` and points along (dirx,dirz) — a
+ * corner post's side is coplanar with exactly such a face and must continue it,
+ * so the edge matches its own adjacent wall rather than a region-wide guess. */
+export function edgeFinishFacing(elements: PlacedElement[], floor: number, p: Vec2, dirx: number, dirz: number): { textureId: string; color: string } | null {
+  for (const w of floorWalls(elements, floor)) {
+    const atA = Math.hypot(w.a.x - p.x, w.a.z - p.z) < 6;
+    const atB = Math.hypot(w.b.x - p.x, w.b.z - p.z) < 6;
+    if (!atA && !atB) continue; // this wall doesn't meet the corner
+    const d = wallDir(w);
+    const nx = -d.z; // +normal
+    const nz = d.x;
+    const t = atA ? 0 : wallLen(w);
+    if (nx * dirx + nz * dirz > 0.9) {
+      const f = spanFinishAt(w.faceNegSpans, w.faceNeg, t); // +normal side is faceNeg*
+      if (f) return f;
+    }
+    if (-nx * dirx - nz * dirz > 0.9) {
+      const f = spanFinishAt(w.facePosSpans, w.facePos, t); // -normal side is facePos*
+      if (f) return f;
+    }
+  }
+  return null;
+}
+
 /** For a wall with no exterior face: 'partition' when the SAME room sits on both
  * sides (a free-standing divider inside one room — its thickness edges are all
  * interior surface), 'divider' when it separates two DIFFERENT rooms (its
