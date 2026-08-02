@@ -395,7 +395,11 @@ function buildSlab(slab: FloorSlab, elements: PlacedElement[]): { group: THREE.G
   mat.map.needsUpdate = true;
   mat.side = THREE.DoubleSide;
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = i2m(baseY + 0.3);
+  // tiny per-slab elevation jitter: adjoining fills that share a dividing
+  // line overlap by an inch or two — keep them from z-fighting
+  let h = 0;
+  for (const c of slab.id) h = (h * 31 + c.charCodeAt(0)) % 7;
+  mesh.position.y = i2m(baseY + 0.3 + h * 0.05);
   mesh.receiveShadow = true;
   group.add(mesh);
   return { group, clipMats: [] };

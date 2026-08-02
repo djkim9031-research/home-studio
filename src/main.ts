@@ -408,6 +408,36 @@ if (params.get('qa') === 'select') {
     if (wall) store.select(wall.id);
   }, 2500);
 }
+if (params.get('qa') === 'divider') {
+  // partial partition inside the seed room: fills on each side must stop at
+  // the partition and its projected dividing line
+  setTimeout(() => {
+    store.deleteElements(store.getState().elements.filter((e) => e.kind === 'slab').map((e) => e.id));
+    store.placeElement({
+      kind: 'wall',
+      floor: 0,
+      a: { x: 96, z: 0 },
+      b: { x: 96, z: 96 },
+      heightIn: 96,
+      thickIn: 5,
+      color: '#f2eee6',
+      textureId: 'paint',
+    } as never);
+    const click = (x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+      viewport.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+    };
+    pointer.setTool(new FloorFillTool({ textureId: 'tile', color: '#cc4444' }, toolCtx));
+    click(700, 480);
+    pointer.setTool(new FloorFillTool({ textureId: 'carpet', color: '#4466bb' }, toolCtx));
+    click(1050, 500);
+    const placedSlabs = store.getState().elements.filter((e) => e.kind === 'slab');
+    const banner = document.createElement('div');
+    banner.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99;background:#222;color:#fff;padding:6px 10px;font:13px monospace;';
+    banner.textContent = `QA slabs=${placedSlabs.length} floors=[${placedSlabs.map((s) => (s.kind === 'slab' ? s.textureId : '')).join(',')}]`;
+    document.body.appendChild(banner);
+  }, 2200);
+}
 if (params.get('qa') === 'fillvis') {
   // visual repro: drop the seed slab, then fill with RED TILE — the placed
   // slab must show that finish

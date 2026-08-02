@@ -4,6 +4,10 @@ import { wallLen } from './validity';
 /** Grid resolution for the flood fill, inches per cell. */
 const CELL = 3;
 const SIMPLIFY_TOL = 2; // inches
+/** virtual divider band half-width (open wall ends → dividing line) */
+const VIRT_R = CELL * 0.9;
+/** how far an open wall end may project its dividing line */
+const DIVIDER_MAX = 1200; // inches
 
 export type FillResult = { ok: true; polygon: Vec2[] } | { ok: false; reason: 'open' | 'no-walls' | 'tiny' };
 
@@ -17,6 +21,80 @@ interface Grid {
 
 function floorWalls(elements: PlacedElement[], floor: number): Wall[] {
   return elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === floor && wallLen(e) > 1);
+}
+
+function distPointSeg(px: number, pz: number, a: Vec2, b: Vec2): number {
+  const abx = b.x - a.x;
+  const abz = b.z - a.z;
+  const ab2 = abx * abx + abz * abz || 1;
+  const t = Math.max(0, Math.min(1, ((px - a.x) * abx + (pz - a.z) * abz) / ab2));
+  return Math.hypot(px - (a.x + abx * t), pz - (a.z + abz * t));
+}
+
+/** Wall endpoints not welded to another wall (and not T-joined into one):
+ * an open partition end. Each carries the direction the wall points out of. */
+function danglingEnds(walls: Wall[]): { p: Vec2; dir: Vec2; thickIn: number }[] {
+  const out: { p: Vec2; dir: Vec2; thickIn: number }[] = [];
+  for (const w of walls) {
+    for (const [p, other] of [
+      [w.a, w.b],
+      [w.b, w.a],
+    ] as [Vec2, Vec2][]) {
+      let attached = false;
+      for (const o of walls) {
+        if (o === w) continue;
+        if (Math.hypot(o.a.x - p.x, o.a.z - p.z) <= 6 || Math.hypot(o.b.x - p.x, o.b.z - p.z) <= 6) {
+          attached = true;
+          break;
+        }
+        if (distPointSeg(p.x, p.z, o.a, o.b) <= o.thickIn / 2 + 2) {
+          attached = true;
+          break;
+        }
+      }
+      if (attached) continue;
+      const len = Math.hypot(p.x - other.x, p.z - other.z) || 1;
+      out.push({ p, dir: { x: (p.x - other.x) / len, z: (p.z - other.z) / len }, thickIn: w.thickIn });
+    }
+  }
+  return out;
+}
+
+/** Stamp dividing lines from open wall ends: cast along the wall direction
+ * until a real wall is hit; the line becomes a thin virtual barrier. Rays
+ * that never land on a wall stamp nothing (a truly open end divides nothing). */
+function stampDividers(g: Grid, real: Uint8Array, walls: Wall[]): void {
+  const { blocked, W, H, minX, minZ } = g;
+  for (const { p, dir, thickIn } of danglingEnds(walls)) {
+    const pending: number[] = [];
+    let hit = false;
+    // start past the source wall's own blocking band, or the first probe
+    // "hits" the wall the ray is leaving from
+    const t0 = thickIn / 2 + CELL * 1.6;
+    for (let t = t0; t <= DIVIDER_MAX; t += CELL * 0.5) {
+      const px = p.x + dir.x * t;
+      const pz = p.z + dir.z * t;
+      const gx = Math.floor((px - minX) / CELL);
+      const gz = Math.floor((pz - minZ) / CELL);
+      if (gx < 0 || gz < 0 || gx >= W || gz >= H) break; // left the build — open
+      if (real[gz * W + gx]) {
+        hit = true;
+        break;
+      }
+      // 2×2 stamp so the line blocks the 4-connected flood watertight
+      for (const [ox, oz] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ]) {
+        const nx = Math.floor((px - minX) / CELL - 0.5) + ox;
+        const nz = Math.floor((pz - minZ) / CELL - 0.5) + oz;
+        if (nx >= 0 && nz >= 0 && nx < W && nz < H) pending.push(nz * W + nx);
+      }
+    }
+    if (hit) for (const i of pending) blocked[i] = 1;
+  }
 }
 
 /** Occupancy grid over a floor's walls: cells within half a wall's thickness
@@ -138,6 +216,9 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
   if (!walls.length) return { ok: false, reason: 'no-walls' };
   const g = buildOccupancy(walls);
   if (!g) return { ok: false, reason: 'open' };
+  // open partition ends divide the space along their projected line
+  const real = g.blocked.slice();
+  stampDividers(g, real, walls);
   const { blocked, W, H, minX, minZ } = g;
 
   const sx = Math.floor((at.x - minX) / CELL);
@@ -173,7 +254,71 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
 
   const outline = traceMask(filled, g);
   if (!outline) return { ok: false, reason: 'tiny' };
-  return { ok: true, polygon: offsetPolygon(outline, centerlineOffset(walls)) };
+  // walls get the tuck-under offset; divider edges just reach their line
+  return { ok: true, polygon: offsetPolygonVar(outline, walls, centerlineOffset(walls), VIRT_R + CELL * 0.5) };
+}
+
+/** Per-edge outward offset: `dWall` along real walls, `dVirt` along divider
+ * lines; vertices land on the intersection of the two offset edges. */
+function offsetPolygonVar(poly: Vec2[], walls: Wall[], dWall: number, dVirt: number): Vec2[] {
+  const n = poly.length;
+  let area2 = 0;
+  for (let i = 0; i < n; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % n];
+    area2 += p.x * q.z - q.x * p.z;
+  }
+  const sign = area2 > 0 ? 1 : -1;
+
+  const edgeInfo = poly.map((p, i) => {
+    const q = poly[(i + 1) % n];
+    const ex = q.x - p.x;
+    const ez = q.z - p.z;
+    const len = Math.hypot(ex, ez) || 1;
+    const nx = (sign * ez) / len;
+    const nz = (-sign * ex) / len;
+    const mx = (p.x + q.x) / 2;
+    const mz = (p.z + q.z) / 2;
+    const nearWall = walls.some((w) => distPointSeg(mx, mz, w.a, w.b) <= w.thickIn / 2 + CELL * 2.2);
+    const d = nearWall ? dWall : dVirt;
+    return { ex: ex / len, ez: ez / len, nx, nz, d };
+  });
+
+  const out: Vec2[] = [];
+  const maxD = Math.max(dWall, dVirt);
+  for (let i = 0; i < n; i++) {
+    const e1 = edgeInfo[(i - 1 + n) % n];
+    const e2 = edgeInfo[i];
+    const cur = poly[i];
+    // lines: (cur + n1·d1) + t·e1  and  (cur + n2·d2) + s·e2
+    const p1x = cur.x + e1.nx * e1.d;
+    const p1z = cur.z + e1.nz * e1.d;
+    const p2x = cur.x + e2.nx * e2.d;
+    const p2z = cur.z + e2.nz * e2.d;
+    const cross = e1.ex * e2.ez - e1.ez * e2.ex;
+    let vx: number;
+    let vz: number;
+    if (Math.abs(cross) < 1e-4) {
+      // near-parallel edges — average the two offsets
+      vx = cur.x + (e1.nx * e1.d + e2.nx * e2.d) / 2;
+      vz = cur.z + (e1.nz * e1.d + e2.nz * e2.d) / 2;
+    } else {
+      const t = ((p2x - p1x) * e2.ez - (p2z - p1z) * e2.ex) / cross;
+      vx = p1x + e1.ex * t;
+      vz = p1z + e1.ez * t;
+      // miter cap for sharp corners
+      const dx = vx - cur.x;
+      const dz = vz - cur.z;
+      const m = Math.hypot(dx, dz);
+      const cap = maxD * 3;
+      if (m > cap) {
+        vx = cur.x + (dx / m) * cap;
+        vz = cur.z + (dz / m) * cap;
+      }
+    }
+    out.push({ x: vx, z: vz });
+  }
+  return out;
 }
 
 /**
