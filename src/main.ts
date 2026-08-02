@@ -4,7 +4,9 @@ import { i2m } from './constants';
 import { openTracer } from './plan/tracer';
 import { generateTemplates } from './plan/template';
 import { buildMatterportPanel } from './matterport/embed';
+import { applySweepsToHouse, collectSweeps, setMpKey } from './matterport/extract';
 import { buildShell, type BuiltShell } from './scene/shell';
+import { loadScanMesh, type LoadedScan } from './scene/scanMesh';
 import { CameraRig, setCameraWorld } from './scene/camera';
 import { createSceneHost } from './scene/host';
 import { getHouse, saveHouse } from './state/houses';
@@ -80,6 +82,43 @@ const traceBtn = mkBtn('Trace plan', 'Calibrate + trace walls for a story', asyn
   if (saved) reloadHouse(currentHouse.id);
 });
 
+let currentScan: LoadedScan | null = null;
+const scanBtn = mkBtn('3D scan', 'Load a scan mesh (.glb) — HM3D scene, MatterPak, or LiDAR export', () => {
+  if (currentScan) {
+    // toggle off and free it
+    host.houseGroup.remove(currentScan.group);
+    currentScan.dispose();
+    currentScan = null;
+    scanBtn.classList.remove('on');
+    scanBtn.textContent = '3D scan';
+    host.invalidateShadows();
+    return;
+  }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.glb,.gltf,model/gltf-binary';
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    toast(`Loading ${file.name} (${(file.size / 1e6).toFixed(0)} MB)…`);
+    try {
+      currentScan = await loadScanMesh(file);
+      host.houseGroup.add(currentScan.group);
+      rig.frameContent(
+        { x: currentScan.center.x, y: 0, z: currentScan.center.z },
+        Math.max(currentScan.halfSpanM, 4),
+      );
+      scanBtn.classList.add('on');
+      scanBtn.textContent = '✕ scan';
+      toast('Scan mesh loaded (session only — meshes are too large to save in the browser).');
+    } catch (e) {
+      toast(`Could not load that mesh: ${(e as Error).message}`);
+    }
+    host.invalidateShadows();
+  });
+  input.click();
+});
+
 mkBtn('Template', 'Regenerate the starter layout for untraced stories', () => {
   if (!currentHouse) return;
   // clear only template-born stories? regeneration applies to EMPTY stories;
@@ -113,6 +152,7 @@ toastEl.className = 'toast';
 container.appendChild(toastEl);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 const toast = (msg: string): void => {
+  document.title = msg; // headless QA reads toasts from the title
   toastEl.textContent = msg;
   toastEl.classList.add('show');
   if (toastTimer) clearTimeout(toastTimer);
@@ -141,7 +181,13 @@ function openHouse(house: House): void {
   currentHouse = house;
   landing.hide();
 
-  // rebuild shell
+  // rebuild shell (drops any session scan mesh with it)
+  if (currentScan) {
+    currentScan.dispose();
+    currentScan = null;
+    scanBtn.classList.remove('on');
+    scanBtn.textContent = '3D scan';
+  }
   host.houseGroup.clear();
   currentShell = buildShell(house);
   titleChip.innerHTML = `<b>${house.name.replace(/[&<>]/g, '')}</b><small>${house.sqft.toLocaleString()} sqft · ${
@@ -150,7 +196,28 @@ function openHouse(house: House): void {
 
   storySeg.innerHTML = '';
   container.querySelector('.hs-mp-panel')?.remove();
-  buildMatterportPanel(container, house.matterportId);
+  buildMatterportPanel(container, house.matterportId, async (iframe, setBusy) => {
+    if (!currentHouse) return;
+    setBusy(true);
+    toast('Connecting to the tour and reading its scan points…');
+    try {
+      const sweeps = await collectSweeps(iframe);
+      const result = applySweepsToHouse(currentHouse, sweeps);
+      if (!result.applied) {
+        toast('The tour returned scan points but no usable outline — trace manually instead.');
+      } else {
+        saveHouse(currentHouse);
+        reloadHouse(currentHouse.id);
+        toast(
+          `Measured ${result.applied}/${result.floors} ${result.floors === 1 ? 'floor' : 'floors'} from ${sweeps.length} scan points — story 1 ≈ ${result.widthFt.toFixed(0)}' × ${result.depthFt.toFixed(0)}'. Trace interior walls over the dots.`,
+        );
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e);
+      toast(`Tour extraction failed: ${msg}`);
+    }
+    setBusy(false);
+  });
 
   if (currentShell) {
     host.houseGroup.add(currentShell.group);
@@ -206,6 +273,13 @@ const landingVisible = (): boolean =>
 host.start(rig.camera, (dt) => rig.update(dt));
 
 const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+{
+  const k = params.get('mpkey');
+  if (k) {
+    setMpKey(k); // must land before any panel builds
+    history.replaceState(null, '', location.pathname + location.search); // keep it out of the URL bar
+  }
+}
 if (params.get('burn') === '1') host.onFrame(() => true);
 if (params.get('demo') === 'template') {
   import('./state/houses').then((houses) => {
@@ -229,6 +303,11 @@ if (params.get('demo') === 'template') {
     }
     openHouse(h);
     if (params.get('view') === 'stand') setTimeout(() => enterStand(), 1500);
+    if (params.get('pull') === '1') {
+      setTimeout(() => {
+        (document.querySelector('.hs-mp-panel [data-k="pull"]') as HTMLButtonElement)?.click();
+      }, 12000);
+    }
   });
 }
 if (params.get('demo') === 'sample') {
