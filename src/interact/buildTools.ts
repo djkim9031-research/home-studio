@@ -2,7 +2,7 @@ import { DEFAULT_DOOR, DEFAULT_STAIR, DEFAULT_WALL_H, DEFAULT_WALL_T, DEFAULT_WI
 import { formatFeetInchesFull } from '../core/format';
 import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
-import { faceGroupTarget, paintGroupPatches, regroupClearPatches } from '../core/wallGroups';
+import { cutSpans, faceGroupTarget, paintGroupPatches, regroupClearPatches } from '../core/wallGroups';
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
 import type { GhostState } from '../state/store';
@@ -94,6 +94,73 @@ function wallsCoincide(a: Vec2, b: Vec2, w: Wall): boolean {
 
 function wallsOn(floor: FloorIndex): Wall[] {
   return store.getState().elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === floor);
+}
+
+/** A perpendicular nudge that snaps a run's thickness band relative to a nearly
+ * parallel existing wall: overlapping bands merge (offset → 0), a band that has
+ * pulled most of the way clear snaps fully out (offset → thickness). Never a
+ * partial overlap where one wall protrudes over the other. Null = leave it. */
+function thicknessSnap(a: Vec2, b: Vec2, walls: Wall[], thick: number): { dx: number; dz: number } | null {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const L = Math.hypot(dx, dz) || 1;
+  const ux = dx / L;
+  const uz = dz / L;
+  let best: { dx: number; dz: number } | null = null;
+  let bestAbs = Infinity;
+  for (const w of walls) {
+    const wdx = w.b.x - w.a.x;
+    const wdz = w.b.z - w.a.z;
+    const wL = Math.hypot(wdx, wdz) || 1;
+    const wux = wdx / wL;
+    const wuz = wdz / wL;
+    if (Math.abs(ux * wuz - uz * wux) > 0.09) continue; // not parallel (~5°)
+    const pnx = -wuz; // wall's perpendicular
+    const pnz = wux;
+    const perp = (((a.x - w.a.x) * pnx + (a.z - w.a.z) * pnz) + ((b.x - w.a.x) * pnx + (b.z - w.a.z) * pnz)) / 2;
+    const ad = Math.abs(perp);
+    if (ad < 0.3 || ad >= thick - 0.3) continue; // already merged or already clear
+    // require a real length overlap so we don't snap to a far-off collinear wall
+    const ta = (a.x - w.a.x) * wux + (a.z - w.a.z) * wuz;
+    const tb = (b.x - w.a.x) * wux + (b.z - w.a.z) * wuz;
+    const ov = Math.min(Math.max(ta, tb), wL) - Math.max(Math.min(ta, tb), 0);
+    if (ov < thick) continue;
+    const target = ad <= thick / 2 ? 0 : thick;
+    const delta = Math.sign(perp || 1) * target - perp;
+    if (Math.abs(delta) < bestAbs) {
+      bestAbs = Math.abs(delta);
+      best = { dx: pnx * delta, dz: pnz * delta };
+    }
+  }
+  return best;
+}
+
+/** Snap a straight run or a whole rectangle so its thickness band merges with,
+ * or fully clears, a neighbouring parallel wall. */
+function magnetThickness(shape: WallShape, ra: Vec2, rb: Vec2, walls: Wall[], thick: number): { a: Vec2; b: Vec2 } {
+  if (!walls.length) return { a: ra, b: rb };
+  let t: { dx: number; dz: number } | null;
+  if (shape === 'rect') {
+    const c = [ra, { x: rb.x, z: ra.z }, rb, { x: ra.x, z: rb.z }];
+    const edges: [Vec2, Vec2][] = [[c[0], c[1]], [c[1], c[2]], [c[2], c[3]], [c[3], c[0]]];
+    let best: { dx: number; dz: number } | null = null;
+    let bestAbs = Infinity;
+    for (const [p, q] of edges) {
+      const s = thicknessSnap(p, q, walls, thick);
+      if (s) {
+        const m = Math.hypot(s.dx, s.dz);
+        if (m < bestAbs) {
+          bestAbs = m;
+          best = s;
+        }
+      }
+    }
+    t = best;
+  } else {
+    t = thicknessSnap(ra, rb, walls, thick);
+  }
+  if (!t) return { a: ra, b: rb };
+  return { a: { x: ra.x + t.dx, z: ra.z + t.dz }, b: { x: rb.x + t.dx, z: rb.z + t.dz } };
 }
 
 /** Magnet to existing wall endpoints on the active floor. */
@@ -250,6 +317,7 @@ export class WallTool implements Tool {
       if (Math.hypot(end.x - this.a.x, end.z - this.a.z) >= 12) rb = end; // dragging a rect
       else ({ a: ra, b: rb } = this.rectCorners(this.a)); // click-place at anchor
     }
+    ({ a: ra, b: rb } = magnetThickness(this.arm.shape, ra, rb, wallsOn(store.getState().activeFloor), this.arm.thickIn));
     const { runs, label, valid } = this.runsFor(ra, rb);
     store.setGhost({
       kind: 'wall',
@@ -276,6 +344,7 @@ export class WallTool implements Tool {
       if (Math.hypot(end.x - anchor.x, end.z - anchor.z) >= 12) rb = end;
       else ({ a: ra, b: rb } = this.rectCorners(anchor));
     }
+    ({ a: ra, b: rb } = magnetThickness(this.arm.shape, ra, rb, wallsOn(store.getState().activeFloor), this.arm.thickIn));
     const { runs, valid } = this.runsFor(ra, rb);
     if (!valid) return; // a bare click never places
     const b = rb;
@@ -306,6 +375,30 @@ export class WallTool implements Tool {
       const outside = this.arm.rectOutside;
       return insideIsPos ? { faceNeg: inside, facePos: outside } : { faceNeg: outside, facePos: inside };
     };
+    // where a new run merges onto an existing wall, that overlapping stretch is
+    // rebuilt: it loses its paint on both faces and any door/window sitting there
+    const mergeUpdates: { id: string; patch: Partial<PlacedElement> }[] = [];
+    const droppedOpenings: string[] = [];
+    for (const r of runs) {
+      for (const w of existing) {
+        if (!wallsCoincide(r.a, r.b, w)) continue;
+        const d = wallDir(w);
+        const wL = wallLen(w);
+        const ta = (r.a.x - w.a.x) * d.x + (r.a.z - w.a.z) * d.z;
+        const tb = (r.b.x - w.a.x) * d.x + (r.b.z - w.a.z) * d.z;
+        const lo = Math.max(0, Math.min(ta, tb));
+        const hi = Math.min(wL, Math.max(ta, tb));
+        if (hi - lo < 1) continue;
+        const patch: Partial<PlacedElement> = {};
+        (patch as { facePosSpans?: FaceSpan[] }).facePosSpans = cutSpans(w.facePosSpans, w.facePos, wL, [[lo, hi]]);
+        (patch as { faceNegSpans?: FaceSpan[] }).faceNegSpans = cutSpans(w.faceNegSpans, w.faceNeg, wL, [[lo, hi]]);
+        mergeUpdates.push({ id: w.id, patch });
+        for (const e of existing.length ? store.getState().elements : []) {
+          if ((e.kind === 'door' || e.kind === 'window') && e.wallId === w.id && e.centerIn >= lo && e.centerIn <= hi) droppedOpenings.push(e.id);
+        }
+      }
+    }
+
     const before = store.getState().elements;
     store.placeElementsBatch(
       fresh.map((r) => ({
@@ -320,6 +413,8 @@ export class WallTool implements Tool {
         ...faceFor(r),
       })),
     );
+    if (mergeUpdates.length) store.updateElementsBatch(mergeUpdates);
+    if (droppedOpenings.length) store.deleteElements(droppedOpenings);
     // a new room can turn a wall's exterior face into an interior one; drop the
     // now-stale exterior paint on those stretches so it doesn't linger
     const clears = regroupClearPatches(before, store.getState().elements, floorIdx);

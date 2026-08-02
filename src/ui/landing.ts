@@ -31,11 +31,14 @@ export function buildLanding(root: HTMLElement, openProject: (p: HomeProject) =>
   };
 
   const refresh = (): void => {
-    const projects = listProjects().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    // newest home first, older ones last (by creation time)
+    const projects = listProjects().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     el.innerHTML = `
       <h1>Home Studio</h1>
       <div class="sub">Build your home in 3D — walls, doors, windows, stairs and floors, under a real sun.</div>
       <div class="hs-cards">
+        <div class="hs-card new" data-k="import">⇧ Import home file</div>
+        <div class="hs-card new" data-k="new">+ New home</div>
         ${projects
           .map(
             (p) => `
@@ -52,8 +55,6 @@ export function buildLanding(root: HTMLElement, openProject: (p: HomeProject) =>
           </div>`,
           )
           .join('')}
-        <div class="hs-card new" data-k="new">+ New home</div>
-        <div class="hs-card new" data-k="import">⇧ Import home file</div>
       </div>`;
 
     el.querySelectorAll<HTMLElement>('.hs-card[data-id]').forEach((card) => {

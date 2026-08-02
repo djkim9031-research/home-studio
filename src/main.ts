@@ -477,6 +477,26 @@ if (params.get('qa') === 'rectio') {
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
 }
+if (params.get('qa') === 'magnet') {
+  // place rect B 2in off rect A's shared wall — the magnet should snap it flush
+  setTimeout(() => {
+    store.clearAll();
+    const mk = (a: { x: number; z: number }, b: { x: number; z: number }) => ({ kind: 'wall', floor: 0, a, b, heightIn: 96, thickIn: 5, color: '#f2eee6', textureId: 'paint' }) as never;
+    store.placeElementsBatch([mk({ x: 0, z: 0 }, { x: 192, z: 0 }), mk({ x: 192, z: 0 }, { x: 192, z: 144 }), mk({ x: 192, z: 144 }, { x: 0, z: 144 }), mk({ x: 0, z: 144 }, { x: 0, z: 0 })]);
+    // put a door on the east wall (x=192) — the merge should drop it
+    const eastWall = store.getState().elements.find((e) => e.kind === 'wall' && e.a.x === 192 && e.b.x === 192);
+    if (eastWall) store.placeElement({ kind: 'door', floor: 0, wallId: eastWall.id, centerIn: 72, widthIn: 36, heightIn: 80, sillIn: 0, styleId: 'panel', color: '#f5f2ea' } as never);
+    const doorsBefore = store.getState().elements.filter((e) => e.kind === 'door').length;
+    const tool = new WallTool({ shape: 'rect', rectLenIn: 192, rectWidIn: 144, rectAnchor: 'tl' }, toolCtx);
+    (tool as unknown as { a: { x: number; z: number } }).a = { x: 190, z: 0 };
+    (tool as unknown as { onUp(f: { x: number; z: number }): void }).onUp({ x: 190, z: 0 });
+    const walls = store.getState().elements.filter((e) => e.kind === 'wall') as { a: { x: number }; b: { x: number } }[];
+    const vertX = walls.filter((w) => Math.abs(w.a.x - w.b.x) < 1).map((w) => Math.round(w.a.x)).sort((p, q) => p - q);
+    const doorsAfter = store.getState().elements.filter((e) => e.kind === 'door').length;
+    document.title = `QAMAGNET walls=${walls.length} vertX=[${vertX.join(',')}] doors=${doorsBefore}->${doorsAfter}`;
+    rig.toDefaultView();
+  }, 2600);
+}
 if (params.get('qa') === 'regroup') {
   // paint room A's exterior brick, then join room B; A's shared (now interior)
   // face must drop the stale brick

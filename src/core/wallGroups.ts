@@ -155,7 +155,7 @@ export interface GroupPatch {
 }
 
 /** Remove the finish over `ranges` (revert those stretches to bare wall). */
-function cutSpans(existing: FaceSpan[] | undefined, whole: WallFace | undefined, len: number, ranges: [number, number][]): FaceSpan[] {
+export function cutSpans(existing: FaceSpan[] | undefined, whole: WallFace | undefined, len: number, ranges: [number, number][]): FaceSpan[] {
   const base: FaceSpan[] = existing ? [...existing] : whole ? [{ from: 0, to: len, textureId: whole.textureId, color: whole.color }] : [];
   const out: FaceSpan[] = [];
   for (const sp of base) {
