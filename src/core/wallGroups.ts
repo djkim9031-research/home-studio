@@ -46,21 +46,23 @@ function faceSegments(wall: Wall, plusSide: boolean, rooms: Vec2[][], len: numbe
   const margin = Math.min(len * 0.25, wall.thickIn + 2);
   const span = Math.max(0, len - 2 * margin);
   const n = Math.max(1, Math.ceil(span / SAMPLE_STEP_IN));
-  const segs: { region: number; from: number; to: number }[] = [];
-  let cur: { region: number; from: number; to: number } | null = null;
+  const samples: { t: number; r: number }[] = [];
   for (let i = 0; i <= n; i++) {
     const t = margin + (span * i) / n;
-    const r = faceRegionAt(wall, plusSide, t, rooms);
-    if (!cur || cur.region !== r) {
-      if (cur) segs.push(cur);
-      cur = { region: r, from: t, to: t };
-    } else cur.to = t;
+    samples.push({ t, r: faceRegionAt(wall, plusSide, t, rooms) });
   }
-  if (cur) segs.push(cur);
-  if (segs.length) {
-    segs[0].from = 0;
-    segs[segs.length - 1].to = len; // corners inherit the nearest interior region
+  // adjacent segments ABUT at the midpoint between the differing samples — never
+  // leaving an unpainted gap at a region transition; ends snap out to 0/len
+  const segs: { region: number; from: number; to: number }[] = [{ region: samples[0].r, from: 0, to: samples[0].t }];
+  for (let i = 1; i < samples.length; i++) {
+    const cur = segs[segs.length - 1];
+    if (samples[i].r !== cur.region) {
+      const mid = (samples[i - 1].t + samples[i].t) / 2;
+      cur.to = mid;
+      segs.push({ region: samples[i].r, from: mid, to: samples[i].t });
+    } else cur.to = samples[i].t;
   }
+  segs[segs.length - 1].to = len;
   return segs;
 }
 
@@ -92,7 +94,18 @@ export function wallExteriorSide(elements: PlacedElement[], floor: number, wall:
 function spanFinishAt(spans: FaceSpan[] | undefined, whole: WallFace | undefined, t: number): { textureId: string; color: string } | null {
   if (spans) {
     const sp = spans.find((s) => t >= Math.min(s.from, s.to) - 0.01 && t <= Math.max(s.from, s.to) + 0.01);
-    return sp ? { textureId: sp.textureId, color: sp.color } : null;
+    if (sp) return { textureId: sp.textureId, color: sp.color };
+    // fall into a small gap between painted spans → use the nearest one
+    let best: FaceSpan | null = null;
+    let bestD = 14;
+    for (const s of spans) {
+      const d = t < s.from ? s.from - t : t - s.to;
+      if (d >= 0 && d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    return best ? { textureId: best.textureId, color: best.color } : whole ? { textureId: whole.textureId, color: whole.color } : null;
   }
   return whole ? { textureId: whole.textureId, color: whole.color } : null;
 }

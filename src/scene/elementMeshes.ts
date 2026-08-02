@@ -221,7 +221,19 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     // repainting can't leave old color showing through the gaps.
     if (spans) {
       const sp = spans.find((s) => t >= Math.min(s.from, s.to) - 0.01 && t <= Math.max(s.from, s.to) + 0.01);
-      return sp ? finishMat(sp) : mat;
+      if (sp) return finishMat(sp);
+      // a small gap between painted spans (a paint-time transition sliver) is
+      // filled from the nearest span, so no bare white line shows at a corner
+      let best: FaceSpan | null = null;
+      let bestD = 14;
+      for (const s of spans) {
+        const d = t < s.from ? s.from - t : t - s.to;
+        if (d >= 0 && d < bestD) {
+          bestD = d;
+          best = s;
+        }
+      }
+      return best ? finishMat(best) : mat;
     }
     return finishMat(whole);
   };
@@ -305,9 +317,10 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     if (here.length < 2) return; // nothing to join
     if (here.some((e) => e.id < wall.id)) return; // a lower-id wall owns this corner
     const geo = new THREE.BoxGeometry(i2m(wall.thickIn), i2m(wall.heightIn), i2m(wall.thickIn));
-    // each post side continues the wall face it is coplanar with
+    // each post side continues the wall face it is coplanar with; if that face
+    // is unpainted, fall back to the region just off it so no bare sliver shows
     const postMat = (dx: number, dz: number): THREE.MeshStandardMaterial => {
-      const f = edgeFinishFacing(elements, wall.floor, p, dx, dz);
+      const f = edgeFinishFacing(elements, wall.floor, p, dx, dz) ?? finishFacingPoint(elements, wall.floor, { x: p.x + dx * off, z: p.z + dz * off });
       return f ? finishMat(f) : mat;
     };
     const post = new THREE.Mesh(geo, [postMat(1, 0), postMat(-1, 0), mat, mat, postMat(0, 1), postMat(0, -1)]);
