@@ -477,6 +477,19 @@ if (params.get('qa') === 'rectio') {
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
 }
+if (params.get('qa') === 'maghover') {
+  // hovering a rect 2in off an existing wall: the GHOST should snap flush
+  setTimeout(() => {
+    store.clearAll();
+    const mk = (a: { x: number; z: number }, b: { x: number; z: number }) => ({ kind: 'wall', floor: 0, a, b, heightIn: 96, thickIn: 5, color: '#f2eee6', textureId: 'paint' }) as never;
+    store.placeElementsBatch([mk({ x: 0, z: 0 }, { x: 192, z: 0 }), mk({ x: 192, z: 0 }, { x: 192, z: 144 }), mk({ x: 192, z: 144 }, { x: 0, z: 144 }), mk({ x: 0, z: 144 }, { x: 0, z: 0 })]);
+    const tool = new WallTool({ shape: 'rect', rectLenIn: 192, rectWidIn: 144, rectAnchor: 'tl' }, toolCtx);
+    (tool as unknown as { onHover(f: { x: number; z: number }): void }).onHover({ x: 190, z: 0 });
+    const g = store.getState().ghost;
+    const xs = g && g.kind === 'wall' ? g.runs.flatMap((r) => [r.a.x, r.b.x]) : [999];
+    document.title = `QAMAGHOVER ghostMinX=${Math.round(Math.min(...xs))} (want 192)`;
+  }, 2600);
+}
 if (params.get('qa') === 'magnet') {
   // place rect B 2in off rect A's shared wall — the magnet should snap it flush
   setTimeout(() => {
