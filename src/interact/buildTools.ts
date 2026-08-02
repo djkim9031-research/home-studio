@@ -2,11 +2,11 @@ import { DEFAULT_DOOR, DEFAULT_STAIR, DEFAULT_WALL_H, DEFAULT_WALL_T, DEFAULT_WI
 import { formatFeetInchesFull } from '../core/format';
 import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
-import { cutSpans, faceGroupTarget, paintGroupPatches, regroupClearPatches } from '../core/wallGroups';
+import { faceGroupTarget, paintGroupPatches, regroupClearPatches } from '../core/wallGroups';
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
 import type { GhostState } from '../state/store';
-import { floorBaseIn, type FaceSpan, type FloorIndex, type PlacedElement, type Vec2, type Wall, type WallFace, type WallPatch } from '../types';
+import { floorBaseIn, type FaceSpan, type FloorIndex, type PlacedElement, type Vec2, type Wall, type WallFace } from '../types';
 
 /** One adjustable offset in the location finetuner (a slider + a number box). */
 export interface FinetuneAxis {
@@ -67,33 +67,62 @@ export interface ToolContext {
 const grid = (v: number): number => Math.round(v / SNAP.grid) * SNAP.grid;
 const gridPt = (p: Vec2): Vec2 => ({ x: grid(p.x), z: grid(p.z) });
 
-/** True when a new segment a→b lies on top of an existing wall: collinear
- * within a couple inches and overlapping most of its own length — the case
- * of two rooms sharing an edge, which should be one wall, not two. */
-function wallsCoincide(a: Vec2, b: Vec2, w: Wall): boolean {
+function wallsOn(floor: FloorIndex): Wall[] {
+  return store.getState().elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === floor);
+}
+
+/** If run a→b lies along wall w (collinear, within the thickness band), the
+ * overlap span [lo,hi] measured along the run; else null. Unlike wallsCoincide
+ * this needs no minimum overlap — it reports exactly how much is shared. */
+function collinearSpan(a: Vec2, b: Vec2, w: Wall, thick: number): [number, number] | null {
   const dnx = b.x - a.x;
   const dnz = b.z - a.z;
   const nLen = Math.hypot(dnx, dnz) || 1;
   const dwx = w.b.x - w.a.x;
   const dwz = w.b.z - w.a.z;
   const wLen = Math.hypot(dwx, dwz) || 1;
-  // parallel?
-  if (Math.abs((dnx * dwz - dnz * dwx) / (nLen * wLen)) > 0.02) return false;
-  const ux = dwx / wLen;
-  const uz = dwz / wLen;
-  // both new endpoints must sit on the existing wall's line (perp ≤ ~3")
-  const perp = (p: Vec2): number => Math.abs((p.x - w.a.x) * -uz + (p.z - w.a.z) * ux);
-  if (perp(a) > w.thickIn / 2 + 3 || perp(b) > w.thickIn / 2 + 3) return false;
-  // overlap of the two spans projected onto the shared line
-  const ta = (a.x - w.a.x) * ux + (a.z - w.a.z) * uz;
-  const tb = (b.x - w.a.x) * ux + (b.z - w.a.z) * uz;
-  const lo = Math.max(0, Math.min(ta, tb));
-  const hi = Math.min(wLen, Math.max(ta, tb));
-  return hi - lo >= nLen * 0.5; // most of the new wall overlaps the old
+  if (Math.abs((dnx * dwz - dnz * dwx) / (nLen * wLen)) > 0.03) return null; // not parallel
+  const ux = dnx / nLen;
+  const uz = dnz / nLen;
+  const perp = (p: Vec2): number => Math.abs((p.x - a.x) * -uz + (p.z - a.z) * ux);
+  if (perp(w.a) > thick / 2 + 3 || perp(w.b) > thick / 2 + 3) return null; // not in the band
+  const twa = (w.a.x - a.x) * ux + (w.a.z - a.z) * uz;
+  const twb = (w.b.x - a.x) * ux + (w.b.z - a.z) * uz;
+  const lo = Math.max(0, Math.min(twa, twb));
+  const hi = Math.min(nLen, Math.max(twa, twb));
+  return hi - lo < 1 ? null : [lo, hi];
 }
 
-function wallsOn(floor: FloorIndex): Wall[] {
-  return store.getState().elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === floor);
+/** Split a run into the stretches NOT already covered by a collinear existing
+ * wall — so a wall drawn over another keeps only its new length (the shared
+ * part is left to the existing wall), never losing or doubling any portion. */
+function runMinusExisting(run: { a: Vec2; b: Vec2 }, existing: Wall[], thick: number): { a: Vec2; b: Vec2 }[] {
+  const dnx = run.b.x - run.a.x;
+  const dnz = run.b.z - run.a.z;
+  const L = Math.hypot(dnx, dnz) || 1;
+  const ux = dnx / L;
+  const uz = dnz / L;
+  const covered: [number, number][] = [];
+  for (const w of existing) {
+    const s = collinearSpan(run.a, run.b, w, thick);
+    if (s) covered.push(s);
+  }
+  if (!covered.length) return [run];
+  covered.sort((p, q) => p[0] - q[0]);
+  const merged: [number, number][] = [[...covered[0]] as [number, number]];
+  for (const [lo, hi] of covered.slice(1)) {
+    const last = merged[merged.length - 1];
+    if (lo <= last[1] + 0.5) last[1] = Math.max(last[1], hi);
+    else merged.push([lo, hi]);
+  }
+  const free: [number, number][] = [];
+  let cur = 0;
+  for (const [lo, hi] of merged) {
+    if (lo > cur + 1) free.push([cur, lo]);
+    cur = Math.max(cur, hi);
+  }
+  if (cur < L - 1) free.push([cur, L]);
+  return free.map(([lo, hi]) => ({ a: { x: run.a.x + ux * lo, z: run.a.z + uz * lo }, b: { x: run.a.x + ux * hi, z: run.a.z + uz * hi } }));
 }
 
 /** A perpendicular nudge that snaps a run's thickness band relative to a nearly
@@ -349,10 +378,13 @@ export class WallTool implements Tool {
     if (!valid) return; // a bare click never places
     const b = rb;
     const floorIdx = store.getState().activeFloor;
-    // where a new edge lands on an existing wall (rooms placed side by side),
-    // reuse the existing wall instead of stacking a second one on top
+    // where a new run overlaps an existing wall, keep only its NON-overlapping
+    // stretches — the shared part is left to the existing wall (which keeps all
+    // its paint, wallpaper and openings), and the extending part is not lost
     const existing = wallsOn(floorIdx);
-    const fresh = runs.filter((r) => !existing.some((w) => wallsCoincide(r.a, r.b, w)));
+    const fresh = runs
+      .flatMap((r) => runMinusExisting(r, existing, this.arm.thickIn).map((piece) => ({ piece, run: r })))
+      .filter(({ piece }) => Math.hypot(piece.b.x - piece.a.x, piece.b.z - piece.a.z) >= 6);
     if (!fresh.length) {
       this.ctx.toast('That room shares its walls with existing ones.');
       if (this.arm.shape === 'line') this.lastB = b;
@@ -375,50 +407,21 @@ export class WallTool implements Tool {
       const outside = this.arm.rectOutside;
       return insideIsPos ? { faceNeg: inside, facePos: outside } : { faceNeg: outside, facePos: inside };
     };
-    // where a new run merges onto an existing wall, that overlapping stretch is
-    // rebuilt: it loses its paint on both faces and any door/window sitting there
-    const mergeUpdates: { id: string; patch: Partial<PlacedElement> }[] = [];
-    const droppedOpenings: string[] = [];
-    for (const r of runs) {
-      for (const w of existing) {
-        if (!wallsCoincide(r.a, r.b, w)) continue;
-        const d = wallDir(w);
-        const wL = wallLen(w);
-        const ta = (r.a.x - w.a.x) * d.x + (r.a.z - w.a.z) * d.z;
-        const tb = (r.b.x - w.a.x) * d.x + (r.b.z - w.a.z) * d.z;
-        const lo = Math.max(0, Math.min(ta, tb));
-        const hi = Math.min(wL, Math.max(ta, tb));
-        if (hi - lo < 1) continue;
-        const patch: Partial<PlacedElement> = {};
-        (patch as { facePosSpans?: FaceSpan[] }).facePosSpans = cutSpans(w.facePosSpans, w.facePos, wL, [[lo, hi]]);
-        (patch as { faceNegSpans?: FaceSpan[] }).faceNegSpans = cutSpans(w.faceNegSpans, w.faceNeg, wL, [[lo, hi]]);
-        // wallpaper patches whose surface run falls in the overlap are dropped too
-        if (w.patches?.length) {
-          (patch as { patches?: WallPatch[] }).patches = w.patches.filter((p) => !(p.toT > lo && p.fromT < hi));
-        }
-        mergeUpdates.push({ id: w.id, patch });
-        for (const e of existing.length ? store.getState().elements : []) {
-          if ((e.kind === 'door' || e.kind === 'window') && e.wallId === w.id && e.centerIn >= lo && e.centerIn <= hi) droppedOpenings.push(e.id);
-        }
-      }
-    }
 
     const before = store.getState().elements;
     store.placeElementsBatch(
-      fresh.map((r) => ({
+      fresh.map(({ piece, run }) => ({
         kind: 'wall' as const,
         floor: floorIdx,
-        a: r.a,
-        b: r.b,
+        a: piece.a,
+        b: piece.b,
         heightIn: this.arm.heightIn,
         thickIn: this.arm.thickIn,
         color: this.arm.color,
         textureId: this.arm.textureId,
-        ...faceFor(r),
+        ...faceFor(run),
       })),
     );
-    if (mergeUpdates.length) store.updateElementsBatch(mergeUpdates);
-    if (droppedOpenings.length) store.deleteElements(droppedOpenings);
     // a new room can turn a wall's exterior face into an interior one; drop the
     // now-stale exterior paint on those stretches so it doesn't linger
     const clears = regroupClearPatches(before, store.getState().elements, floorIdx);
