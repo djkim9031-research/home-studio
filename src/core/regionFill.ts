@@ -68,16 +68,17 @@ function stampDividers(g: Grid, real: Uint8Array, walls: Wall[]): void {
   for (const { p, dir, thickIn } of danglingEnds(walls)) {
     const pending: number[] = [];
     let hit = false;
-    // start past the source wall's own blocking band, or the first probe
-    // "hits" the wall the ray is leaving from
+    // the hit test only arms past the source wall's own blocking band (the
+    // first probes sit inside it), but stamping starts immediately so a small
+    // gap between this end and a nearby wall still seals
     const t0 = thickIn / 2 + CELL * 1.6;
-    for (let t = t0; t <= DIVIDER_MAX; t += CELL * 0.5) {
+    for (let t = CELL * 0.5; t <= DIVIDER_MAX; t += CELL * 0.5) {
       const px = p.x + dir.x * t;
       const pz = p.z + dir.z * t;
       const gx = Math.floor((px - minX) / CELL);
       const gz = Math.floor((pz - minZ) / CELL);
       if (gx < 0 || gz < 0 || gx >= W || gz >= H) break; // left the build — open
-      if (real[gz * W + gx]) {
+      if (t >= t0 && real[gz * W + gx]) {
         hit = true;
         break;
       }

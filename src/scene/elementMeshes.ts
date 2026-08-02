@@ -255,7 +255,9 @@ function buildOpening(op: Opening, elements: PlacedElement[]): { group: THREE.Gr
   const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material): void => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(i2m(w), i2m(h), i2m(d)), m);
     mesh.position.set(i2m(x), i2m(y), i2m(z));
-    mesh.castShadow = true;
+    // glass transmits: panes never occlude the sun, so daylight rays pass
+    // through windows and glazed doors while frames and solid leaves shade
+    mesh.castShadow = m !== glassMat;
     mesh.receiveShadow = true;
     group.add(mesh);
   };
