@@ -6,40 +6,62 @@ import { getMpKey, setMpKey } from './extract';
 export function buildMatterportPanel(
   root: HTMLElement,
   modelId: string | null,
-  onPull?: (iframe: HTMLIFrameElement, setBusy: (b: boolean) => void) => void,
+  onPull?: (setBusy: (b: boolean) => void) => void,
 ): void {
   if (!modelId) return;
-  const key = getMpKey();
   const panel = document.createElement('div');
   panel.className = 'hs-mp-panel';
-  const src = key
-    ? `https://my.matterport.com/show/?m=${encodeURIComponent(modelId)}&brand=0&play=1&applicationKey=${encodeURIComponent(key)}`
-    : `https://my.matterport.com/show/?m=${encodeURIComponent(modelId)}&brand=0&play=0`;
+  // the visible tour NEVER carries the key — a bad key or missing allowlist
+  // entry must not break the walkthrough; the SDK uses its own hidden player
   panel.innerHTML = `
     <div class="head">
       <span>Matterport tour</span>
       <span style="display:flex;gap:6px;">
         <button class="ui-btn" data-k="pull" title="Measure the footprint from the tour's scan points">⤓ Pull layout</button>
+        <button class="ui-btn" data-k="keyedit" title="Set or change your Matterport SDK key">✎ key</button>
         <button class="ui-btn" data-k="toggle">—</button>
       </span>
     </div>
-    <div class="hs-mp-key" data-k="keyrow" style="display:${key ? 'none' : 'flex'};gap:6px;padding:8px 10px;align-items:center;">
-      <input type="password" data-k="key" placeholder="Matterport SDK key (stays in this browser)" style="flex:1;padding:6px 8px;border:1px solid var(--hairline);border-radius:6px;background:#fffdf8;font:inherit;">
+    <div class="hs-mp-key" data-k="keyrow" style="display:none;gap:6px;padding:8px 10px;align-items:center;flex-wrap:wrap;">
+      <input type="password" data-k="key" placeholder="Matterport SDK key (stays in this browser)" style="flex:1;min-width:180px;padding:6px 8px;border:1px solid var(--hairline);border-radius:6px;background:#fffdf8;font:inherit;">
       <button class="ui-btn" data-k="keysave">Save</button>
+      <button class="ui-btn danger" data-k="keyclear" title="Forget the saved key">✕</button>
+      <small style="width:100%;color:#7a7266;">Create one at my.matterport.com → Settings → Developer Tools, and add
+      <b>${location.hostname || 'localhost'}</b> to its allow list.</small>
     </div>
     <iframe
-      src="${src}"
+      src="https://my.matterport.com/show/?m=${encodeURIComponent(modelId)}&brand=0&play=0"
       allow="fullscreen; vr; xr-spatial-tracking"
       title="Matterport walkthrough"></iframe>`;
   root.appendChild(panel);
+
+  const keyRow = panel.querySelector('[data-k="keyrow"]') as HTMLDivElement;
   const keyInput = panel.querySelector('[data-k="key"]') as HTMLInputElement;
+  const pull = panel.querySelector('[data-k="pull"]') as HTMLButtonElement;
+  const refreshKeyState = (): void => {
+    pull.disabled = !getMpKey();
+    pull.title = getMpKey()
+      ? 'Measure the footprint from the tour’s scan points'
+      : 'Save your SDK key first (✎ key)';
+  };
+  (panel.querySelector('[data-k="keyedit"]') as HTMLButtonElement).addEventListener('click', () => {
+    keyRow.style.display = keyRow.style.display === 'none' ? 'flex' : 'none';
+    keyInput.value = getMpKey() ?? '';
+  });
   (panel.querySelector('[data-k="keysave"]') as HTMLButtonElement).addEventListener('click', () => {
     const v = keyInput.value.trim();
-    if (!v) return;
-    setMpKey(v);
-    panel.remove();
-    buildMatterportPanel(root, modelId, onPull); // rebuild with the key attached
+    if (v) setMpKey(v);
+    keyRow.style.display = 'none';
+    refreshKeyState();
   });
+  (panel.querySelector('[data-k="keyclear"]') as HTMLButtonElement).addEventListener('click', () => {
+    setMpKey(null);
+    keyInput.value = '';
+    keyRow.style.display = 'none';
+    refreshKeyState();
+  });
+  if (!getMpKey()) keyRow.style.display = 'flex'; // first run: invite the key
+
   const iframe = panel.querySelector('iframe')!;
   const toggle = panel.querySelector('[data-k="toggle"]') as HTMLButtonElement;
   toggle.addEventListener('click', () => {
@@ -47,16 +69,15 @@ export function buildMatterportPanel(
     iframe.style.display = hidden ? 'block' : 'none';
     toggle.textContent = hidden ? '—' : '▢';
   });
-  const pull = panel.querySelector('[data-k="pull"]') as HTMLButtonElement;
-  if (!key) pull.disabled = true;
   if (onPull) {
     pull.addEventListener('click', () =>
-      onPull(iframe as HTMLIFrameElement, (b) => {
-        pull.disabled = b;
+      onPull((b) => {
+        pull.disabled = b || !getMpKey();
         pull.textContent = b ? '⤓ measuring…' : '⤓ Pull layout';
       }),
     );
   } else {
     pull.style.display = 'none';
   }
+  refreshKeyState();
 }

@@ -63,19 +63,54 @@ function loadSdkScript(): Promise<void> {
   return sdkScript;
 }
 
-/** Connect to the tour iframe and collect every sweep's plan position. */
-export async function collectSweeps(iframe: HTMLIFrameElement): Promise<SweepPoint[]> {
+/** Spin up a hidden keyed player, connect, and collect every sweep's plan
+ * position. The visible tour iframe stays key-free so a bad key or missing
+ * allowlist entry can never break the walkthrough itself. */
+export async function collectSweeps(modelId: string, mount?: HTMLElement): Promise<SweepPoint[]> {
   await loadSdkScript();
   if (!window.MP_SDK) throw new Error('Matterport SDK unavailable');
   const key = getMpKey();
   if (!key) throw new Error('no SDK key saved — paste it in the tour panel first');
-  // modern latest.js: the key rides the iframe URL and connect takes just the
-  // iframe; older builds want (iframe, key, sdkVersion)
+
+  const iframe = document.createElement('iframe');
+  // the player must be VISIBLE to boot (offscreen iframes get throttled and
+  // never stream sweeps) — overlay it on the tour panel while measuring
+  if (mount) {
+    iframe.style.cssText = 'position:absolute;left:0;bottom:0;width:100%;height:300px;border:0;z-index:5;background:#111;';
+    mount.style.position = 'relative';
+    mount.appendChild(iframe);
+  } else {
+    iframe.style.cssText = 'position:fixed;right:8px;bottom:8px;width:420px;height:280px;border:1px solid #999;z-index:80;background:#111;';
+    document.body.appendChild(iframe);
+  }
+  iframe.allow = 'fullscreen; vr; xr-spatial-tracking';
+  iframe.src = `https://my.matterport.com/show/?m=${encodeURIComponent(modelId)}&brand=0&play=1&applicationKey=${encodeURIComponent(key)}`;
+  const cleanup = (): void => iframe.remove();
+
+  const host = location.hostname || 'localhost';
   let sdk: MpSdk;
   try {
-    sdk = await window.MP_SDK.connect(iframe);
-  } catch {
-    sdk = await window.MP_SDK.connect(iframe, key, '3.10');
+    await new Promise<void>((res, rej) => {
+      const t = setTimeout(() => rej(new Error('the keyed player never loaded')), 60000);
+      iframe.addEventListener('load', () => {
+        clearTimeout(t);
+        res();
+      });
+    });
+    // modern latest.js: the key rides the iframe URL and connect takes just
+    // the iframe; older builds want (iframe, key, sdkVersion)
+    try {
+      sdk = await withTimeout(window.MP_SDK.connect(iframe), 60000);
+    } catch (e) {
+      if (isTimeout(e)) throw e;
+      sdk = await withTimeout(window.MP_SDK.connect(iframe, key, '3.10'), 60000);
+    }
+  } catch (e) {
+    cleanup();
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `could not connect (${detail}). Check the key, and make sure "${host}" is on its allow list at my.matterport.com → Settings → Developer Tools.`,
+    );
   }
   try {
     const sweeps = await new Promise<SweepPoint[]>((resolve, reject) => {
@@ -116,8 +151,27 @@ export async function collectSweeps(iframe: HTMLIFrameElement): Promise<SweepPoi
     } catch {
       /* player may already be gone */
     }
+    cleanup();
   }
 }
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error(`SDK connect timed out after ${ms / 1000}s`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        res(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        rej(e);
+      },
+    );
+  });
+}
+
+const isTimeout = (e: unknown): boolean => e instanceof Error && e.message.includes('timed out');
 
 // ---------------------------------------------------------------------------
 // Sweep cloud → floor outline: occupancy grid, dilation (walls sit beyond the

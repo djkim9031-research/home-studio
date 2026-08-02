@@ -196,12 +196,15 @@ function openHouse(house: House): void {
 
   storySeg.innerHTML = '';
   container.querySelector('.hs-mp-panel')?.remove();
-  buildMatterportPanel(container, house.matterportId, async (iframe, setBusy) => {
-    if (!currentHouse) return;
+  buildMatterportPanel(container, house.matterportId, async (setBusy) => {
+    if (!currentHouse?.matterportId) return;
     setBusy(true);
     toast('Connecting to the tour and reading its scan points…');
     try {
-      const sweeps = await collectSweeps(iframe);
+      const sweeps = await collectSweeps(
+        currentHouse.matterportId,
+        container.querySelector('.hs-mp-panel') as HTMLElement | undefined,
+      );
       const result = applySweepsToHouse(currentHouse, sweeps);
       if (!result.applied) {
         toast('The tour returned scan points but no usable outline — trace manually instead.');
