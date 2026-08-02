@@ -94,6 +94,11 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     for (const f of fields) controls.appendChild(f);
     el.appendChild(controls);
     el.addEventListener('click', () => onArm(read(), el));
+    // adjusting a control on an ALREADY-armed card re-arms with the fresh
+    // values — otherwise changing e.g. the shape after arming does nothing
+    controls.addEventListener('change', () => {
+      if (el.classList.contains('active')) onArm(read(), el);
+    });
     return { root: el, read };
   };
 

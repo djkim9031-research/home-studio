@@ -323,6 +323,28 @@ if (params.get('qa') === 'hoverwin') {
     );
   }, 3000);
 }
+if (params.get('qa') === 'shapecard') {
+  // through the REAL palette DOM: arm the wall card, flip its shape select to
+  // rectangle AFTER arming, then drag — must place 4 walls, not a line
+  setTimeout(() => {
+    const card = document.querySelector('.hs-pal-card') as HTMLElement;
+    card.click(); // arms with shape=Straight
+    const sel = card.querySelector('select') as HTMLSelectElement;
+    sel.value = 'rect';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const before = store.getState().elements.filter((e) => e.kind === 'wall').length;
+    const fire = (type: string, x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 6, button: 0, bubbles: true }));
+    };
+    fire('pointerdown', 520, 430);
+    fire('pointermove', 760, 580);
+    fire('pointerup', 760, 580);
+    setTimeout(() => {
+      const after = store.getState().elements.filter((e) => e.kind === 'wall').length;
+      document.title = `QASHAPECARD placed=+${after - before} (want 4)`;
+    }, 500);
+  }, 3000);
+}
 if (params.get('qa') === 'shapes') {
   // rectangle then circle wall runs via synthetic drags; count the result
   setTimeout(() => {
