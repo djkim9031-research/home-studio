@@ -4,7 +4,7 @@ import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
-import type { FloorIndex, PlacedElement, Vec2, Wall } from '../types';
+import type { FaceSpan, FloorIndex, PlacedElement, Vec2, Wall } from '../types';
 
 /** One tool owns the canvas at a time; the router dispatches gestures to it. */
 export interface Tool {
@@ -523,6 +523,34 @@ function polyCentroid(poly: Vec2[]): Vec2 {
   return { x: x / poly.length, z: z / poly.length };
 }
 
+/** Overwrite existing face spans with new painted ranges (repaint replaces). */
+function mergeSpans(
+  existing: FaceSpan[] | undefined,
+  ranges: [number, number][],
+  finish: { textureId: string; color: string },
+): FaceSpan[] {
+  const out: FaceSpan[] = [];
+  // keep the parts of old spans not covered by any new range
+  for (const sp of existing ?? []) {
+    let pieces: [number, number][] = [[sp.from, sp.to]];
+    for (const [rf, rt] of ranges) {
+      const next: [number, number][] = [];
+      for (const [pf, pt] of pieces) {
+        if (rt <= pf || rf >= pt) {
+          next.push([pf, pt]);
+          continue;
+        }
+        if (rf > pf) next.push([pf, rf]);
+        if (rt < pt) next.push([rt, pt]);
+      }
+      pieces = next;
+    }
+    for (const [pf, pt] of pieces) if (pt - pf > 1) out.push({ ...sp, from: pf, to: pt });
+  }
+  for (const [rf, rt] of ranges) if (rt - rf > 1) out.push({ from: rf, to: rt, ...finish });
+  return out.sort((a, b) => a.from - b.from);
+}
+
 /** Walls whose run hugs the region polygon's boundary. */
 function wallsBoundingRegion(walls: Wall[], polygon: Vec2[]): Wall[] {
   const near = (px: number, pz: number, tol: number): boolean => {
@@ -658,18 +686,19 @@ export class WallpaperTool implements Tool {
       };
       const region = fillRegion(s.elements, s.activeFloor, clickedRegionSeed);
       if (region.ok) {
-        // the clicked side faces a room — paper that room
-        targets = wallsBoundingRegion(walls, region.polygon);
+        // the clicked side faces a room — paper every wall bordering it,
+        // interior partitions included (the per-length matching filters faces)
+        targets = walls;
         regionPolygon = region.polygon;
       } else {
-        // exterior face — paint the whole connected run's outward faces
+        // exterior face — paint the whole connected shell's outward faces
         targets = connectedWalls(walls, hit.wallId);
         exteriorRun = true;
       }
     } else {
       const region = floor ? fillRegion(s.elements, s.activeFloor, floor) : ({ ok: false } as const);
       if (region.ok) {
-        targets = wallsBoundingRegion(walls, region.polygon);
+        targets = walls;
         regionPolygon = region.polygon;
       } else if (hit) {
         targets = connectedWalls(walls, hit.wallId);
@@ -690,59 +719,65 @@ export class WallpaperTool implements Tool {
       return;
     }
 
-    // per-wall SIDE: the box's +z face maps to the plan normal (-dz, dx). A
-    // face is "toward" a point when that point lies on the +normal side.
-    const face = { textureId: this.arm.textureId, color: this.arm.color };
-    const facingPos = (w: Wall, toward: Vec2): boolean => {
+    // Paint each wall FACE run by run. Walk the length; a run matches when a
+    // point just off that face satisfies the paint context (interior: inside
+    // the clicked room; exterior: outside every room). A wall that is partly
+    // in and partly out therefore gets two spans, split at the crossing.
+    const finish = { textureId: this.arm.textureId, color: this.arm.color };
+    const regions = detectEnclosedRegions(s.elements, s.activeFloor);
+    const matches = (p: Vec2): boolean =>
+      regionPolygon ? pointInPolygon(p, regionPolygon) : !regions.some((r) => pointInPolygon(p, r));
+    const faceSampleAt = (w: Wall, towardPos: boolean, t: number): Vec2 => {
       const d = wallDir(w);
       const n = { x: -d.z, z: d.x };
-      const mid = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 };
-      return (toward.x - mid.x) * n.x + (toward.z - mid.z) * n.z >= 0;
+      const sign = towardPos ? 1 : -1;
+      const at = wallPointAt(w, t);
+      const off = w.thickIn / 2 + 6;
+      return { x: at.x + n.x * off * sign, z: at.z + n.z * off * sign };
     };
-    const patchFor = (towardPos: boolean): Partial<PlacedElement> => (towardPos ? { facePos: face } : { faceNeg: face });
-    const updates: { id: string; patch: Partial<PlacedElement> }[] = [];
-
-    if (regionPolygon) {
-      // interior papering: paint each wall's face toward the room centroid
-      const c = polyCentroid(regionPolygon);
-      for (const w of targets) updates.push({ id: w.id, patch: patchFor(facingPos(w, c)) });
-    } else {
-      // Exterior shell: the outside is one group. A wall face is exterior when
-      // a point just off it lies OUTSIDE every enclosed room. Each connected
-      // wall (the whole rect/circle shell + any wall joined to it) contributes
-      // its outward faces; a wall fully between rooms has none and is skipped.
-      const regions = detectEnclosedRegions(s.elements, s.activeFloor);
-      const outside = (p: Vec2): boolean => !regions.some((r) => pointInPolygon(p, r));
-      const faceSample = (w: Wall, towardPos: boolean): Vec2 => {
-        const d = wallDir(w);
-        const n = { x: -d.z, z: d.x };
-        const sign = towardPos ? 1 : -1;
-        const mid = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 };
-        const off = w.thickIn / 2 + 6;
-        return { x: mid.x + n.x * off * sign, z: mid.z + n.z * off * sign };
-      };
-      for (const w of targets) {
-        const posOut = outside(faceSample(w, true));
-        const negOut = outside(faceSample(w, false));
-        if (posOut && !negOut) updates.push({ id: w.id, patch: patchFor(true) });
-        else if (negOut && !posOut) updates.push({ id: w.id, patch: patchFor(false) });
-        else if (posOut && negOut) {
-          // both sides open (a fin sticking out) — paint the clicked side
-          const cam = this.ctx.cameraPlanePos();
-          updates.push({ id: w.id, patch: patchFor(facingPos(w, cam)) });
+    const matchingRanges = (w: Wall, towardPos: boolean): [number, number][] => {
+      const L = wallLen(w);
+      const step = 4; // inches
+      const ranges: [number, number][] = [];
+      let runStart: number | null = null;
+      for (let t = 0; t <= L + 0.001; t += step) {
+        const tt = Math.min(t, L);
+        const on = matches(faceSampleAt(w, towardPos, tt));
+        if (on && runStart === null) runStart = tt;
+        else if (!on && runStart !== null) {
+          ranges.push([runStart, tt]);
+          runStart = null;
         }
-        // both interior (party wall) → no exterior face, skip
       }
+      if (runStart !== null) ranges.push([runStart, L]);
+      return ranges;
+    };
+
+    const updates: { id: string; patch: Partial<PlacedElement> }[] = [];
+    for (const w of targets) {
+      const patch: Partial<Wall> = {};
+      let painted = false;
+      for (const towardPos of [true, false]) {
+        const ranges = matchingRanges(w, towardPos);
+        if (!ranges.length) continue;
+        const spans = mergeSpans(towardPos ? w.facePosSpans : w.faceNegSpans, ranges, finish);
+        if (towardPos) patch.facePosSpans = spans;
+        else patch.faceNegSpans = spans;
+        painted = true;
+      }
+      if (painted) updates.push({ id: w.id, patch: patch as Partial<PlacedElement> });
     }
     if (!updates.length) {
-      this.ctx.toast('Those walls sit between rooms — paper them from inside a room.');
+      this.ctx.toast(
+        regionPolygon ? 'Nothing to paper there.' : 'Those walls sit between rooms — paper them from inside a room.',
+      );
       return;
     }
     const ids = new Set(updates.map((u) => u.id));
     const originals = structuredClone(targets.filter((w) => ids.has(w.id))) as PlacedElement[];
     store.updateElementsLive(updates);
     store.commitLiveEdit(originals);
-    this.ctx.toast(`Painted ${updates.length} wall face${updates.length > 1 ? 's' : ''}.`);
+    this.ctx.toast(`Painted ${updates.length} wall${updates.length > 1 ? 's' : ''}.`);
   }
 
   cancel(): void {

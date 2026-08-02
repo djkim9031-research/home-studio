@@ -1,4 +1,5 @@
 import './ui/style.css';
+import * as THREE from 'three';
 import { CameraRig, setCameraWorld, setTargetElevation } from './scene/camera';
 import { createSceneHost } from './scene/host';
 import { buildGround } from './scene/ground';
@@ -466,6 +467,74 @@ if (params.get('qa') === 'wallpaper') {
         setInterval(() => (document.title = t), 400);
       }),
     );
+  }, 2200);
+}
+if (params.get('qa') === 'splitmesh') {
+  // render check: a crossing wall with a pre-set interior span (stripes, inner
+  // z72-144) and exterior span (brick, outer z144-260) must show two finishes
+  setTimeout(() => {
+    store.placeElement({
+      kind: 'wall',
+      floor: 0,
+      a: { x: 96, z: 72 },
+      b: { x: 96, z: 260 },
+      heightIn: 96,
+      thickIn: 8,
+      color: '#f2eee6',
+      textureId: 'paint',
+      faceNegSpans: [
+        { from: 0, to: 72, textureId: 'stripes', color: '#d9d2e6' },
+        { from: 72, to: 188, textureId: 'brick', color: '#c76f4a' },
+      ],
+      facePosSpans: [
+        { from: 0, to: 72, textureId: 'stripes', color: '#d9d2e6' },
+        { from: 72, to: 188, textureId: 'brick', color: '#c76f4a' },
+      ],
+    } as never);
+  }, 2000);
+}
+if (params.get('qa') === 'crossing') {
+  // a wall from inside the room (z=72) crossing the north shell (z=144) out to
+  // z=260; interior papering then exterior painting must split it at ~144
+  setTimeout(() => {
+    const seed = store.getState().elements.find((e) => e.kind === 'wall');
+    const floorIdx = 0;
+    store.placeElement({
+      kind: 'wall',
+      floor: floorIdx,
+      a: { x: 96, z: 72 },
+      b: { x: 96, z: 260 },
+      heightIn: 96,
+      thickIn: 5,
+      color: '#f2eee6',
+      textureId: 'paint',
+    } as never);
+    void seed;
+    const click = (x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+      viewport.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+    };
+    const fmt = (spans: unknown): string =>
+      Array.isArray(spans)
+        ? spans.map((sp) => `${Math.round((sp as { from: number }).from)}-${Math.round((sp as { to: number }).to)}`).join(',')
+        : 'none';
+    // world plan point → screen px via the live camera
+    const rect = host.canvas.getBoundingClientRect();
+    const clickWorld = (xIn: number, zIn: number): void => {
+      const v = new THREE.Vector3(i2m(xIn), i2m(floorBaseIn(store.getState().elements, floorIdx)), i2m(zIn)).project(rig.camera);
+      const x = rect.left + ((v.x + 1) / 2) * rect.width;
+      const y = rect.top + ((1 - v.y) / 2) * rect.height;
+      viewport.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+      viewport.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+    };
+    pointer.setTool(new WallpaperTool({ textureId: 'stripes', color: '#d9d2e6' }, toolCtx));
+    clickWorld(150, 100); // right half interior
+    pointer.setTool(new WallpaperTool({ textureId: 'brick', color: '#c76f4a' }, toolCtx));
+    clickWorld(88, 210); // just off the crossing wall's west face, outside the shell
+    const cross = store.getState().elements.find((e) => e.kind === 'wall' && Math.round(e.a.z) === 72);
+    const c = cross && cross.kind === 'wall' ? cross : null;
+    const t = `QACROSS pos=[${fmt(c?.facePosSpans)}] neg=[${fmt(c?.faceNegSpans)}]`;
+    setInterval(() => (document.title = t), 400);
   }, 2200);
 }
 if (params.get('qa') === 'refill') {

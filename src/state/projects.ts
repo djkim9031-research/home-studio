@@ -45,9 +45,13 @@ export function isValidElement(v: unknown): v is PlacedElement {
       const w = o as Wall;
       const faceOk = (f: unknown): boolean =>
         f === undefined || (!!f && str((f as { textureId: unknown }).textureId) && str((f as { color: unknown }).color));
+      const spansOk = (v: unknown): boolean =>
+        v === undefined ||
+        (Array.isArray(v) &&
+          v.every((sp) => !!sp && num(sp.from) && num(sp.to) && str(sp.textureId) && str(sp.color)));
       return (
         isVec2(w.a) && isVec2(w.b) && num(w.heightIn) && num(w.thickIn) && str(w.textureId) &&
-        faceOk(w.facePos) && faceOk(w.faceNeg)
+        faceOk(w.facePos) && faceOk(w.faceNeg) && spansOk(w.facePosSpans) && spansOk(w.faceNegSpans)
       );
     }
     case 'door':

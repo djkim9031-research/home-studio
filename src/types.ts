@@ -27,16 +27,26 @@ export interface WallFace {
   color: string;
 }
 
+/** A painted run along one wall face, `from`/`to` measured in inches from a. */
+export interface FaceSpan extends WallFace {
+  from: number;
+  to: number;
+}
+
 export interface Wall extends ElementBase {
   kind: 'wall';
   a: Vec2; // endpoints, inches
   b: Vec2;
   heightIn: number;
   thickIn: number;
-  textureId: string; // base finish (edges + any face without its own)
+  textureId: string; // base finish (edges + any face run left unpainted)
   /** wallpaper per side: `facePos` faces the (-dz, dx) normal, `faceNeg` the other */
   facePos?: WallFace;
   faceNeg?: WallFace;
+  /** per-length painted runs — a wall partly inside and partly outside carries
+   * an interior span and an exterior span split at the crossing point */
+  facePosSpans?: FaceSpan[];
+  faceNegSpans?: FaceSpan[];
 }
 
 /** A door or window carried by a wall; depth is implicitly the wall's thickness. */

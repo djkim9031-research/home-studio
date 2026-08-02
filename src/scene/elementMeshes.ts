@@ -7,12 +7,14 @@ import {
   floorBaseIn,
   polygonSqft,
   storyHeightIn,
+  type FaceSpan,
   type FloorSlab,
   type Opening,
   type PlacedElement,
   type Room,
   type Stair,
   type Wall,
+  type WallFace,
 } from '../types';
 
 /** Everything the cutaway/highlight controllers need about one element's mesh. */
@@ -191,23 +193,44 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   const group = new THREE.Group();
   const baseY = floorBaseIn(elements, wall.floor);
   const mat = finishMaterial(wall.textureId, wall.color);
-  // per-side wallpaper: a box's +z face maps to the plan normal (-dz, dx)
-  const matPos = wall.facePos ? finishMaterial(wall.facePos.textureId, wall.facePos.color) : mat;
-  const matNeg = wall.faceNeg ? finishMaterial(wall.faceNeg.textureId, wall.faceNeg.color) : mat;
   const rep = finishRepeatPerIn(wall.textureId);
   const len = wallLen(wall);
   const dir = wallDir(wall);
   const yaw = -Math.atan2(wall.b.z - wall.a.z, wall.b.x - wall.a.x);
 
+  // per-face finish varies along the length: a span covering t wins, else the
+  // whole-face finish, else the base — cached so identical runs share a material
+  const matCache = new Map<string, THREE.MeshStandardMaterial>();
+  const finishMat = (f: { textureId: string; color: string } | undefined): THREE.MeshStandardMaterial => {
+    if (!f) return mat;
+    const key = `${f.textureId}|${f.color}`;
+    let m = matCache.get(key);
+    if (!m) {
+      m = finishMaterial(f.textureId, f.color);
+      matCache.set(key, m);
+    }
+    return m;
+  };
+  const faceAt = (spans: FaceSpan[] | undefined, whole: WallFace | undefined, t: number): THREE.MeshStandardMaterial => {
+    if (spans) {
+      const sp = spans.find((s) => t >= Math.min(s.from, s.to) - 0.01 && t <= Math.max(s.from, s.to) + 0.01);
+      if (sp) return finishMat(sp);
+    }
+    return finishMat(whole);
+  };
+
   const seg = (t0: number, t1: number, y0: number, y1: number): void => {
     const L = t1 - t0;
     if (L < 0.5 || y1 - y0 < 0.5) return;
+    const midT = (t0 + t1) / 2;
+    const matPos = faceAt(wall.facePosSpans, wall.facePos, midT);
+    const matNeg = faceAt(wall.faceNegSpans, wall.faceNeg, midT);
     const geo = new THREE.BoxGeometry(i2m(L), i2m(y1 - y0), i2m(wall.thickIn));
     scaleBoxUV(geo, L * rep, (y1 - y0) * rep);
     // box material order: +x, -x, +y, -y, +z, -z. The mesh's yaw maps its
     // local -z onto the plan +normal (-dz, dx), so facePos → the -z face.
     const m = new THREE.Mesh(geo, [mat, mat, mat, mat, matNeg, matPos]);
-    const mid = wallPointAt(wall, (t0 + t1) / 2);
+    const mid = wallPointAt(wall, midT);
     m.position.set(i2m(mid.x), i2m(baseY + (y0 + y1) / 2), i2m(mid.z));
     m.rotation.y = yaw;
     m.castShadow = true;
@@ -220,21 +243,36 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     .filter((c) => c.t1 > 0 && c.t0 < len)
     .sort((p, q) => p.t0 - q.t0);
 
+  // subdivide the length at span boundaries too, so each solid stretch has a
+  // single per-face finish
+  const spanBounds = [...(wall.facePosSpans ?? []), ...(wall.faceNegSpans ?? [])]
+    .flatMap((s) => [s.from, s.to])
+    .filter((t) => t > 0.5 && t < len - 0.5);
+
+  // emit a solid wall run [t0,t1] at full height, split at span boundaries
+  const solid = (t0: number, t1: number): void => {
+    const inner = spanBounds.filter((t) => t > t0 + 0.5 && t < t1 - 0.5).sort((p, q) => p - q);
+    let c = t0;
+    for (const b of inner) {
+      seg(c, b, 0, wall.heightIn);
+      c = b;
+    }
+    seg(c, t1, 0, wall.heightIn);
+  };
+
   let cursor = 0;
   for (const c of cuts) {
     const t0 = Math.max(cursor, c.t0);
     const t1 = Math.min(len, c.t1);
-    if (t0 > cursor) seg(cursor, t0, 0, wall.heightIn);
+    if (t0 > cursor) solid(cursor, t0);
     seg(t0, t1, c.head, wall.heightIn); // header
     if (c.sill > 0) seg(t0, t1, 0, c.sill); // sill wall below windows
     cursor = t1;
   }
-  if (cursor < len) seg(cursor, len, 0, wall.heightIn);
+  if (cursor < len) solid(cursor, len);
   void dir;
   void wallUp;
-  const clipMats = [mat];
-  if (matPos !== mat) clipMats.push(matPos);
-  if (matNeg !== mat) clipMats.push(matNeg);
+  const clipMats = [mat, ...matCache.values()];
   return { group, clipMats };
 }
 

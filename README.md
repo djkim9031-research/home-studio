@@ -27,9 +27,11 @@ real sun that casts real shadows for any date and time you pick.
     oak, tile, carpet, or concrete, tinted any color. Filling an already-floored
     area replaces the old floor.
   - **Wallpaper**: paint one side of a wall at a time — click inside a room to
-    paper its interior faces, or click a wall's outer face to paint the whole
-    exterior shell. Interior and exterior stay independent. Paint, plaster,
-    brick, wood panel, stripes, beadboard, or damask, tinted with quick swatches.
+    paper its interior faces (partitions included), or click an outer face to
+    paint the whole connected exterior shell. Inside and outside are separate
+    groups, and a wall that runs from inside to outside is split at the wall it
+    crosses so each part joins the right group. Paint, plaster, brick, wood
+    panel, stripes, beadboard, or damask, tinted with quick swatches.
   - **Rooms**: click inside an enclosed area to name it; the label floats in
     the room with its square footage and can be renamed any time.
   - **Ceilings**: enclosed areas get an automatic flat ceiling that blocks the
