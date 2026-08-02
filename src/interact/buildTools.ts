@@ -4,7 +4,39 @@ import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
-import type { FaceSpan, FloorIndex, PlacedElement, Vec2, Wall, WallFace } from '../types';
+import type { GhostState } from '../state/store';
+import { floorBaseIn, type FaceSpan, type FloorIndex, type PlacedElement, type Vec2, type Wall, type WallFace } from '../types';
+
+/** One adjustable offset in the location finetuner (a slider + a number box). */
+export interface FinetuneAxis {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+}
+
+/** Live result of the finetuner for the current offset values. */
+export interface FinetuneResolved {
+  ghost: GhostState;
+  anchor: { x: number; y: number; z: number };
+  element: Omit<PlacedElement, 'id'>;
+  valid: boolean;
+  invalidMsg?: string;
+}
+
+/** A deferred placement: preview with adjustable offsets, confirmed with ✓.
+ * Reusable across categories — any tool can hand one of these to the host. */
+export interface FinetuneRequest {
+  title: string;
+  axes: FinetuneAxis[];
+  resolve(values: Record<string, number>): FinetuneResolved;
+  /** run after the element is committed (e.g. mark it the main entrance) */
+  after?(placedId: string): void;
+  /** the session ended (confirmed or cancelled) — re-enable the tool */
+  onClose?(): void;
+}
 
 /** One tool owns the canvas at a time; the router dispatches gestures to it. */
 export interface Tool {
@@ -27,6 +59,8 @@ export interface ToolContext {
   cameraPlanePos(): Vec2;
   /** notify that the armed tool finished/cancelled (palette un-highlights) */
   onDisarm(): void;
+  /** hand off a deferred placement to the location finetuner */
+  beginFinetune(req: FinetuneRequest): void;
 }
 
 const grid = (v: number): number => Math.round(v / SNAP.grid) * SNAP.grid;
@@ -336,6 +370,7 @@ export class OpeningTool implements Tool {
   private ctx: ToolContext;
   private hover: { wallId: string; centerIn: number; valid: boolean } | null = null;
   private downAt: { x: number; y: number } | null = null;
+  private suspended = false; // true while the finetuner owns the placement
 
   constructor(arm: Partial<OpeningArm> & { door: boolean }, ctx: ToolContext) {
     const d = arm.door ? DEFAULT_DOOR : DEFAULT_WINDOW;
@@ -378,16 +413,19 @@ export class OpeningTool implements Tool {
   }
 
   onDown(_floor: Vec2 | null, ev: PointerEvent): boolean {
+    if (this.suspended) return false;
     this.downAt = { x: ev.clientX, y: ev.clientY };
     this.track(ev);
     return this.hover !== null;
   }
 
   onMove(_floor: Vec2 | null, ev: PointerEvent): void {
+    if (this.suspended) return;
     this.track(ev);
   }
 
   onUp(_floor: Vec2 | null, ev: PointerEvent): void {
+    if (this.suspended) return;
     const down = this.downAt;
     this.downAt = null;
     if (!down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
@@ -400,21 +438,65 @@ export class OpeningTool implements Tool {
     const s = store.getState();
     const wall = s.elements.find((e): e is Wall => e.kind === 'wall' && e.id === hover.wallId);
     if (!wall) return;
-    const placed = store.placeElement({
-      kind: this.arm.door ? 'door' : 'window',
-      floor: wall.floor,
-      wallId: wall.id,
-      centerIn: hover.centerIn,
-      widthIn: this.arm.widthIn,
-      heightIn: this.arm.heightIn,
-      sillIn: this.arm.sillIn,
-      styleId: this.arm.styleId,
-      color: this.arm.color,
-    } as Omit<PlacedElement, 'id'>);
-    if (this.arm.door && this.arm.mainEntrance) store.setMainEntrance(placed.id);
+
+    // hand off to the location finetuner instead of placing straight away
+    const len = wallLen(wall);
+    const width = this.arm.widthIn;
+    const height = this.arm.heightIn;
+    const door = this.arm.door;
+    const baseY = floorBaseIn(s.elements, wall.floor);
+    const nearEndA = hover.centerIn <= len / 2; // measure from the closer corner
+    const initFromEnd = Math.max(0, Math.min(len - width, (nearEndA ? hover.centerIn : len - hover.centerIn) - width / 2));
+    const styleId = this.arm.styleId;
+    const color = this.arm.color;
+    const armSill = this.arm.sillIn;
+    const asMain = door && !!this.arm.mainEntrance;
+
+    const axes: FinetuneAxis[] = [
+      { key: 'x', label: 'From nearest corner (in)', min: 0, max: Math.max(0, len - width), step: 1, value: initFromEnd },
+    ];
+    if (!door) axes.push({ key: 'y', label: 'Height from floor (in)', min: 0, max: Math.max(0, wall.heightIn - height), step: 1, value: armSill });
+
+    this.suspended = true;
+    store.setGhost(null);
+    this.ctx.beginFinetune({
+      title: door ? 'Position door' : 'Position window',
+      axes,
+      resolve: (v) => {
+        const fromEnd = Math.max(0, Math.min(len - width, v.x));
+        const centerIn = nearEndA ? fromEnd + width / 2 : len - fromEnd - width / 2;
+        const sill = door ? 0 : Math.max(0, Math.min(wall.heightIn - height, v.y ?? armSill));
+        const valid = openingFits(wall, store.getState().elements, centerIn, width, height, sill);
+        const p = wallPointAt(wall, nearEndA ? fromEnd : len - fromEnd);
+        return {
+          ghost: { kind: 'opening', wallId: wall.id, centerIn, widthIn: width, heightIn: height, sillIn: sill, door, valid },
+          anchor: { x: p.x, y: baseY + sill, z: p.z },
+          valid,
+          invalidMsg: "It doesn't fit there — nudge it along the wall.",
+          element: {
+            kind: door ? 'door' : 'window',
+            floor: wall.floor,
+            wallId: wall.id,
+            centerIn,
+            widthIn: width,
+            heightIn: height,
+            sillIn: sill,
+            styleId,
+            color,
+          } as Omit<PlacedElement, 'id'>,
+        };
+      },
+      after: (id) => {
+        if (asMain) store.setMainEntrance(id);
+      },
+      onClose: () => {
+        this.suspended = false;
+      },
+    });
   }
 
   onHover(_floor: Vec2 | null, ev: PointerEvent): void {
+    if (this.suspended) return;
     this.track(ev);
   }
 
@@ -443,6 +525,7 @@ export class StairTool implements Tool {
   private yawDeg = 0;
   private at: Vec2 | null = null;
   private downAt: { x: number; y: number } | null = null;
+  private suspended = false;
 
   constructor(arm: Partial<StairArm>, ctx: ToolContext) {
     this.arm = {
@@ -483,16 +566,19 @@ export class StairTool implements Tool {
   }
 
   onDown(floor: Vec2 | null, ev: PointerEvent): boolean {
+    if (this.suspended) return false;
     this.downAt = { x: ev.clientX, y: ev.clientY };
     this.show(floor);
     return floor !== null;
   }
 
   onMove(floor: Vec2 | null): void {
+    if (this.suspended) return;
     this.show(floor);
   }
 
   onUp(floor: Vec2 | null, ev: PointerEvent): void {
+    if (this.suspended) return;
     const down = this.downAt;
     this.downAt = null;
     if (!down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
@@ -503,22 +589,76 @@ export class StairTool implements Tool {
       this.ctx.toast('The top floor has no upstairs — stairs go on a lower floor.');
       return;
     }
-    store.placeElement({
-      kind: 'stair',
-      floor: s.activeFloor,
-      x: this.at.x,
-      z: this.at.z,
-      yawDeg: this.yawDeg,
-      widthIn: this.arm.widthIn,
-      runIn: this.arm.runIn,
-      flights: this.arm.flights,
-      styleId: this.arm.styleId,
-      textureId: this.arm.textureId,
-      color: this.arm.color,
-    } as Omit<PlacedElement, 'id'>);
+
+    // anchor at the nearest corner of this floor's wall footprint; offsets are
+    // the stair's distance from that corner along each axis
+    const walls = s.elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === s.activeFloor);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const w of walls) {
+      minX = Math.min(minX, w.a.x, w.b.x);
+      maxX = Math.max(maxX, w.a.x, w.b.x);
+      minZ = Math.min(minZ, w.a.z, w.b.z);
+      maxZ = Math.max(maxZ, w.a.z, w.b.z);
+    }
+    if (!walls.length) {
+      minX = maxX = minZ = maxZ = 0;
+    }
+    const corners = [
+      { x: minX, z: minZ },
+      { x: maxX, z: minZ },
+      { x: minX, z: maxZ },
+      { x: maxX, z: maxZ },
+    ];
+    const click = this.at;
+    const corner = corners.reduce((best, c) => (Math.hypot(c.x - click.x, c.z - click.z) < Math.hypot(best.x - click.x, best.z - click.z) ? c : best), corners[0]);
+    const signX = click.x >= corner.x ? 1 : -1;
+    const signZ = click.z >= corner.z ? 1 : -1;
+    const baseY = floorBaseIn(s.elements, s.activeFloor);
+    const yaw = this.yawDeg;
+    const { widthIn, runIn, flights, styleId, textureId, color } = this.arm;
+    const floorIdx = s.activeFloor;
+
+    this.suspended = true;
+    store.setGhost(null);
+    this.ctx.beginFinetune({
+      title: 'Position stairs',
+      axes: [
+        { key: 'x', label: 'From corner · X (in)', min: 0, max: 1200, step: 1, value: Math.round(Math.abs(click.x - corner.x)) },
+        { key: 'y', label: 'From corner · Z (in)', min: 0, max: 1200, step: 1, value: Math.round(Math.abs(click.z - corner.z)) },
+      ],
+      resolve: (v) => {
+        const x = corner.x + signX * v.x;
+        const z = corner.z + signZ * v.y;
+        return {
+          ghost: { kind: 'stair', floor: floorIdx, x, z, yawDeg: yaw, widthIn, runIn, flights, valid: true },
+          anchor: { x: corner.x, y: baseY, z: corner.z },
+          valid: true,
+          element: {
+            kind: 'stair',
+            floor: floorIdx,
+            x,
+            z,
+            yawDeg: yaw,
+            widthIn,
+            runIn,
+            flights,
+            styleId,
+            textureId,
+            color,
+          } as Omit<PlacedElement, 'id'>,
+        };
+      },
+      onClose: () => {
+        this.suspended = false;
+      },
+    });
   }
 
   onHover(floor: Vec2 | null): void {
+    if (this.suspended) return;
     this.show(floor);
   }
 

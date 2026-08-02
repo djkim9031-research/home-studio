@@ -26,6 +26,8 @@ export interface AppState {
   /** exactly-one selection convenience (null when 0 or >1 selected) */
   selectedId: string | null;
   ghost: GhostState | null;
+  /** a small red marker shown at a finetuner's anchor corner */
+  anchorMarker: { x: number; y: number; z: number } | null;
   settings: Settings;
 }
 
@@ -43,6 +45,7 @@ const state: AppState = {
   selectedIds: [],
   selectedId: null,
   ghost: null,
+  anchorMarker: null,
   settings: { gridSnap: true, angleSnap: true, showDims: true, showGrid: true },
 };
 
@@ -78,6 +81,11 @@ function pruneSelection(): void {
 
 export function setGhost(ghost: GhostState | null): void {
   state.ghost = ghost;
+  emit({ kind: 'ghost' });
+}
+
+export function setAnchor(marker: { x: number; y: number; z: number } | null): void {
+  state.anchorMarker = marker;
   emit({ kind: 'ghost' });
 }
 

@@ -449,6 +449,105 @@ button.ui-btn.danger:hover {
   color: #b6472e;
 }
 
+/* location finetuner — floating card, below the toolbar */
+.hs-finetune {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  width: 300px;
+  background: rgba(250, 247, 240, 0.97);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  box-shadow: 0 6px 22px rgba(60, 50, 30, 0.22);
+  padding: 12px 14px;
+}
+
+.hs-ft-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.hs-ft-hint {
+  font-weight: 400;
+  font-size: 10px;
+  color: #a99f8d;
+}
+
+.hs-ft-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 56px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.hs-ft-row label {
+  font-size: 11px;
+  color: #8d8478;
+}
+
+.hs-ft-slider {
+  width: 100%;
+  accent-color: var(--brass);
+}
+
+.hs-ft-num {
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 3px 4px;
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+
+.hs-ft-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.hs-ft-cancel,
+.hs-ft-ok {
+  font: inherit;
+  font-size: 13px;
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  border: 1px solid var(--hairline);
+}
+
+.hs-ft-cancel {
+  background: #fff;
+  color: #8d8478;
+}
+
+.hs-ft-ok {
+  background: #2f9e58;
+  border-color: #2f9e58;
+  color: #fff;
+  font-weight: 700;
+}
+
+.hs-ft-ok:hover {
+  background: #268049;
+}
+
+.hs-ft-ok:disabled {
+  background: #cbb892;
+  border-color: #cbb892;
+  cursor: not-allowed;
+}
+
 .sun-info {
   white-space: pre-line;
   font-size: 11px;

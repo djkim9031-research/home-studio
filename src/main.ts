@@ -12,7 +12,7 @@ import { moonState, sunPosition } from './scene/sun';
 import { i2m } from './constants';
 import * as store from './state/store';
 import { exportProject, getProject, listProjects, saveProject } from './state/projects';
-import { FloorFillTool, OpeningTool, RoomTool, SelectTool, StairTool, WallpaperTool, WallTool, type Tool, type ToolContext } from './interact/buildTools';
+import { FloorFillTool, OpeningTool, RoomTool, SelectTool, StairTool, WallpaperTool, WallTool, type FinetuneRequest, type Tool, type ToolContext } from './interact/buildTools';
 import { PointerController } from './interact/pointer';
 import { installKeyboard } from './interact/keyboard';
 import { buildLanding } from './ui/landing';
@@ -20,6 +20,7 @@ import { buildPalette, type ArmSpec } from './ui/palette';
 import { buildPlacedPanel } from './ui/placedPanel';
 import { buildEditPanel } from './ui/editPanel';
 import { buildCompass } from './ui/compass';
+import { buildFinetunePanel } from './ui/finetune';
 import { buildMinimap } from './ui/minimap';
 import { buildSunPanel, type SunPanelState } from './ui/sunPanel';
 import { buildToolbar, type Toolbar } from './ui/toolbar';
@@ -79,6 +80,47 @@ function toast(msg: string): void {
 // ---- interaction -----------------------------------------------------------
 
 const pointer = new PointerController(viewport, host.canvas, rig, meshes);
+const finetunePanel = buildFinetunePanel(viewport);
+
+// location finetuner: a deferred placement previews live and commits on ✓
+let cancelFinetune: (() => void) | null = null;
+function beginFinetune(req: FinetuneRequest): void {
+  cancelFinetune?.(); // only one at a time
+  let last: Record<string, number> = {};
+  for (const a of req.axes) last[a.key] = a.value;
+  const apply = (vals: Record<string, number>): void => {
+    last = vals;
+    const r = req.resolve(vals);
+    store.setGhost(r.ghost);
+    store.setAnchor(r.anchor);
+    finetunePanel.setValid(r.valid, r.invalidMsg);
+  };
+  const finish = (): void => {
+    finetunePanel.close();
+    store.setGhost(null);
+    store.setAnchor(null);
+    cancelFinetune = null;
+    req.onClose?.();
+  };
+  cancelFinetune = finish;
+  finetunePanel.open({
+    title: req.title,
+    axes: req.axes,
+    onChange: apply,
+    onConfirm: () => {
+      const r = req.resolve(last);
+      if (!r.valid) {
+        toast(r.invalidMsg ?? "It doesn't fit there.");
+        return;
+      }
+      const placed = store.placeElement(r.element);
+      req.after?.(placed.id);
+      toast('Placed.');
+      finish();
+    },
+    onCancel: finish,
+  });
+}
 
 const toolCtx: ToolContext = {
   toast,
@@ -86,18 +128,21 @@ const toolCtx: ToolContext = {
   floorHitDistance: (ev) => pointer.floorHitDistance(ev),
   cameraPlanePos: () => ({ x: rig.camera.position.x / i2m(1), z: rig.camera.position.z / i2m(1) }),
   onDisarm: () => disarm(),
+  beginFinetune,
 };
 
 const selectTool = new SelectTool({ ...toolCtx, pickElement: (ev) => pointer.pickElement(ev) });
 pointer.setFallback(selectTool);
 
 function disarm(): void {
+  cancelFinetune?.();
   pointer.setTool(null);
   palette.clearActive();
 }
 pointer.onToolDone = disarm;
 
 function armFromSpec(spec: ArmSpec, card: HTMLElement): void {
+  cancelFinetune?.();
   palette.clearActive();
   let tool: Tool;
   switch (spec.tool) {
@@ -124,7 +169,7 @@ function armFromSpec(spec: ArmSpec, card: HTMLElement): void {
   card.classList.add('active');
 }
 
-installKeyboard(rig, pointer, () => palette.clearActive());
+installKeyboard(rig, pointer, () => disarm());
 
 // ---- sun -------------------------------------------------------------------
 
@@ -274,7 +319,7 @@ store.subscribe((s, ev) => {
     if (ev.kind === 'load') fitWorld(false);
   }
   if (ev.kind === 'ghost') {
-    ghost.update(s.ghost, s.elements);
+    ghost.update(s.ghost, s.elements, s.anchorMarker);
     host.invalidate();
   }
   if (ev.kind === 'selection') {
@@ -426,6 +471,29 @@ if (params.get('qa') === 'rectio') {
     const faces = walls.map((w) => (w.kind === 'wall' ? `${w.facePos?.textureId ?? '-'}|${w.faceNeg?.textureId ?? '-'}` : '')).join(' ');
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
+}
+if (params.get('qa') === 'finetune') {
+  // arm a door, click a wall → the finetuner should open WITHOUT placing yet
+  setTimeout(() => {
+    pointer.setTool(new OpeningTool({ door: true }, toolCtx));
+    const fire = (type: string, x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 7, button: 0, bubbles: true }));
+    };
+    fire('pointermove', 700, 470);
+    fire('pointerdown', 700, 470);
+    fire('pointerup', 700, 470);
+    setTimeout(() => {
+      const p = document.querySelector('.hs-finetune') as HTMLElement | null;
+      const open = !!p && p.style.display !== 'none';
+      document.title = `QAFT panel=${open ? 'open' : 'closed'} doors=${store.getState().elements.filter((e) => e.kind === 'door').length}`;
+      if (params.get('confirm') === '1' && open) {
+        (p!.querySelector('[data-k="ok"]') as HTMLButtonElement).click();
+        setTimeout(() => {
+          document.title = `QAFT confirmed doors=${store.getState().elements.filter((e) => e.kind === 'door').length} panel=${p.style.display !== 'none' ? 'open' : 'closed'}`;
+        }, 300);
+      }
+    }, 800);
+  }, 3000);
 }
 if (params.get('qa') === 'mainent') {
   // mark the seed room's door as the main entrance → minimap should reorient

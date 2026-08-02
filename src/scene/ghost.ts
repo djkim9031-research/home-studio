@@ -19,6 +19,7 @@ export class GhostVisual {
     depthWrite: false,
   });
   private invalidMat = this.validMat.clone();
+  private anchorMat = new THREE.MeshStandardMaterial({ color: 0xd53a2a, emissive: 0x8a1a10, roughness: 0.5, depthTest: false });
   private lenChip = makeChip('chip dim-chip');
   private endChipA = makeChip('chip dim-chip');
   private endChipB = makeChip('chip dim-chip');
@@ -33,7 +34,7 @@ export class GhostVisual {
     parent.add(this.lenChip, this.endChipA, this.endChipB);
   }
 
-  update(ghost: GhostState | null, elements: PlacedElement[]): void {
+  update(ghost: GhostState | null, elements: PlacedElement[], anchor?: { x: number; y: number; z: number } | null): void {
     // rebuild the preview mesh set from scratch (cheap at ghost scale)
     for (const child of [...this.group.children]) {
       this.group.remove(child);
@@ -43,6 +44,16 @@ export class GhostVisual {
     this.lenChip.visible = false;
     this.endChipA.visible = false;
     this.endChipB.visible = false;
+
+    // finetuner anchor: a red diamond marking the corner the offsets measure from
+    if (anchor) {
+      const geo = new THREE.OctahedronGeometry(i2m(6));
+      const m = new THREE.Mesh(geo, this.anchorMat);
+      m.position.set(i2m(anchor.x), i2m(anchor.y + 6), i2m(anchor.z));
+      m.renderOrder = 999;
+      this.group.add(m);
+    }
+
     if (!ghost) return;
 
     const mat = ghost.valid ? this.validMat : this.invalidMat;
