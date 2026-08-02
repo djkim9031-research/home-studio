@@ -2,6 +2,7 @@ import './ui/style.css';
 import * as THREE from 'three';
 import { i2m } from './constants';
 import { openTracer } from './plan/tracer';
+import { generateTemplates } from './plan/template';
 import { buildMatterportPanel } from './matterport/embed';
 import { buildShell, type BuiltShell } from './scene/shell';
 import { CameraRig, setCameraWorld } from './scene/camera';
@@ -77,6 +78,26 @@ const traceBtn = mkBtn('Trace plan', 'Calibrate + trace walls for a story', asyn
   }
   const saved = await openTracer(currentHouse, key);
   if (saved) reloadHouse(currentHouse.id);
+});
+
+mkBtn('Template', 'Regenerate the starter layout for untraced stories', () => {
+  if (!currentHouse) return;
+  // clear only template-born stories? regeneration applies to EMPTY stories;
+  // to rebuild from scratch the user clears a story in the tracer first
+  for (const p of [...currentHouse.plans, ...(currentHouse.basementPlan ? [currentHouse.basementPlan] : [])]) {
+    if (p.inPerPx === 1 && p.imageData) {
+      // regenerate previously templated stories with current house facts
+      p.imageData = null;
+      p.boundaryPx = [];
+      p.wallsPx = [];
+      p.openingsPx = [];
+      p.inPerPx = 0;
+    }
+  }
+  const n = generateTemplates(currentHouse);
+  saveHouse(currentHouse);
+  reloadHouse(currentHouse.id);
+  toast(n ? `Starter layout regenerated for ${n} ${n === 1 ? 'story' : 'stories'}.` : 'All stories have uploads or traces — nothing to template.');
 });
 
 const storySeg = document.createElement('div');
@@ -186,6 +207,30 @@ host.start(rig.camera, (dt) => rig.update(dt));
 
 const params = new URLSearchParams(location.hash.replace(/^#/, ''));
 if (params.get('burn') === '1') host.onFrame(() => true);
+if (params.get('demo') === 'template') {
+  import('./state/houses').then((houses) => {
+    const existing = houses.listHouses().find((h) => h.name === 'Template Colonial');
+    let h = existing ?? null;
+    if (!h) {
+      h = houses.newHouse({
+        name: 'Template Colonial',
+        adults: 2,
+        kids: 2,
+        pets: '1 lab',
+        sqft: 2200,
+        stories: 2,
+        basement: true,
+        garage: '2-car',
+        dwelling: 'house',
+        matterportId: params.get('nomp') ? null : 'RBJgekjimAS',
+      });
+      generateTemplates(h);
+      houses.saveHouse(h);
+    }
+    openHouse(h);
+    if (params.get('view') === 'stand') setTimeout(() => enterStand(), 1500);
+  });
+}
 if (params.get('demo') === 'sample') {
   // deterministic sample house: a 40'×28' rectangle with two rooms + openings,
   // "traced" synthetically so captures don't need file uploads

@@ -1,6 +1,7 @@
 import type { DwellingType, GarageType, House } from '../types';
 import { newHouse, parseMatterportId, saveHouse } from '../state/houses';
 import { loadPlanFile } from '../plan/planLoader';
+import { generateTemplates } from '../plan/template';
 
 /** The "tell us about the house" modal. Resolves with the saved house (or an
  * updated one when `existing` is passed), null on cancel. */
@@ -68,8 +69,12 @@ export function openIntakeForm(existing: House | null): Promise<House | null> {
           <input type="url" data-k="mp" placeholder="https://my.matterport.com/show/?m=…">
         </div>
         <div class="hs-field full">
-          <label>Floor plans (image or PDF, one per story — optional now, needed to build the 3D model)</label>
+          <label>Floor plans (image or PDF, one per story)</label>
           <div data-k="drops"></div>
+          <small style="color:#7a7266">No plan file? No problem — stories without one get a
+          <b>starter template</b> generated from the details above (rooms sized from the
+          square footage, bedrooms from the household, garage attached). Use the Matterport
+          tour's measure mode to correct it in the tracer afterwards.</small>
         </div>
         <div class="hs-err" data-k="err"></div>
         <div class="hs-form-actions">
@@ -230,6 +235,7 @@ export function openIntakeForm(existing: House | null): Promise<House | null> {
       };
       for (let i = 0; i < stories; i++) applyPlan(`s${i}`, i);
       if (basement) applyPlan('b', 'b');
+      generateTemplates(house); // stories with neither upload nor trace get a starter layout
       try {
         saveHouse(house);
       } catch (e) {
