@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Home Studio</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      window.addEventListener('error', (e) => {
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'position:fixed;top:0;left:0;z-index:999;background:#fee;color:#900;padding:8px;max-width:90vw;white-space:pre-wrap;font-size:12px;';
+        pre.textContent = 'ERROR: ' + e.message + '
+' + (e.error && e.error.stack ? e.error.stack.split('
+').slice(0,5).join('
+') : e.filename + ':' + e.lineno);
+        document.body.appendChild(pre);
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'position:fixed;top:120px;left:0;z-index:999;background:#fee;color:#900;padding:8px;max-width:90vw;white-space:pre-wrap;font-size:12px;';
+        pre.textContent = 'REJECTION: ' + (e.reason && e.reason.stack ? e.reason.stack.split('
+').slice(0,6).join('
+') : String(e.reason));
+        document.body.appendChild(pre);
+      });
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
