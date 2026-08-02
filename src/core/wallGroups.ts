@@ -169,14 +169,10 @@ export function edgeFinishFacing(elements: PlacedElement[], floor: number, p: Ve
     const nx = -d.z; // +normal
     const nz = d.x;
     const t = atA ? 0 : wallLen(w);
-    if (nx * dirx + nz * dirz > 0.9) {
-      const f = spanFinishAt(w.faceNegSpans, w.faceNeg, t); // +normal side is faceNeg*
-      if (f) return f;
-    }
-    if (-nx * dirx - nz * dirz > 0.9) {
-      const f = spanFinishAt(w.facePosSpans, w.facePos, t); // -normal side is facePos*
-      if (f) return f;
-    }
+    // continue the adjacent face's finish: its span, else its whole-face, else
+    // the wall's own base finish (never a bare colour or a neighbour's paint)
+    if (nx * dirx + nz * dirz > 0.9) return spanFinishAt(w.faceNegSpans, w.faceNeg, t) ?? { textureId: w.textureId, color: w.color };
+    if (-nx * dirx - nz * dirz > 0.9) return spanFinishAt(w.facePosSpans, w.facePos, t) ?? { textureId: w.textureId, color: w.color };
   }
   return null;
 }

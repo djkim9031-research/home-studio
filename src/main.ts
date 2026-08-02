@@ -483,6 +483,15 @@ if (params.get('qa') === 'rectio') {
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
 }
+if (params.get('qa') === 'accent0') {
+  // a patch at offset-from-floor 0 should sit flush on the floor
+  setTimeout(() => {
+    const wall = store.getState().elements.find((e) => e.kind === 'wall' && e.textureId !== 'brick');
+    if (wall && wall.kind === 'wall') {
+      store.updateElement(wall.id, { patches: [{ face: 'pos', fromT: 20, toT: 100, y0: 0, y1: 60, textureId: 'brick', color: '#c0392b' }] } as never);
+    }
+  }, 2600);
+}
 if (params.get('qa') === 'painthover') {
   // arm Paint, hover an exterior face — the ghost should cover the whole group
   setTimeout(() => {
