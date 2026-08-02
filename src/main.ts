@@ -19,6 +19,8 @@ import { buildLanding } from './ui/landing';
 import { buildPalette, type ArmSpec } from './ui/palette';
 import { buildPlacedPanel } from './ui/placedPanel';
 import { buildEditPanel } from './ui/editPanel';
+import { detectEnclosedRegions } from './core/regionFill';
+import { paintGroupPatches } from './core/wallGroups';
 import { buildCompass } from './ui/compass';
 import { buildFinetunePanel } from './ui/finetune';
 import { buildMinimap } from './ui/minimap';
@@ -477,9 +479,7 @@ if (params.get('qa') === 'rectio') {
 }
 if (params.get('qa') === 'paintgroup') {
   // two rooms sharing a wall: paint each interior + the exterior via groups
-  setTimeout(async () => {
-    const { detectEnclosedRegions } = await import('./core/regionFill');
-    const { paintGroupPatches } = await import('./core/wallGroups');
+  setTimeout(() => {
     store.clearAll();
     const mk = (a: { x: number; z: number }, b: { x: number; z: number }) => ({ kind: 'wall', floor: 0, a, b, heightIn: 96, thickIn: 5, color: '#f2eee6', textureId: 'paint' }) as never;
     store.placeElementsBatch([

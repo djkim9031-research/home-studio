@@ -3,6 +3,7 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { COLORS, i2m, IN, JOIST_T } from '../constants';
 import { finishMaterial, finishRepeatPerIn } from '../data/registry';
 import { openingsOf, wallDir, wallLen, wallPointAt } from '../core/validity';
+import { buildingExteriorFinish, wallExteriorSide } from '../core/wallGroups';
 import {
   floorBaseIn,
   polygonSqft,
@@ -199,21 +200,13 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   const dir = wallDir(wall);
   const yaw = -Math.atan2(wall.b.z - wall.a.z, wall.b.x - wall.a.x);
 
-  // which face points away from the plan's built-up area is the exterior; the
-  // box end caps are painted with that finish so a welded corner reads as one
-  // continuous exterior surface instead of exposing bare plaster where two
-  // perpendicular runs meet (facePos normal is the plan +normal (-dz, dx))
   const floorWalls = elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === wall.floor);
-  let cxSum = 0;
-  let czSum = 0;
-  for (const w of floorWalls) {
-    cxSum += w.a.x + w.b.x;
-    czSum += w.a.z + w.b.z;
-  }
-  const nPts = floorWalls.length * 2 || 1;
-  const plan = { x: cxSum / nPts, z: czSum / nPts };
-  const midWall = wallPointAt(wall, len / 2);
-  const exteriorIsPos = (midWall.x - plan.x) * -dir.z + (midWall.z - plan.z) * dir.x > 0;
+  // The thickness edges (caps, top, corner posts) wear the EXTERIOR finish, and
+  // never an interior colour. Which physical side is exterior comes from the
+  // rooms: 'pos' = +normal side, 'neg' = -normal, null = a shared divider wall
+  // (no exterior face) — its edges borrow the building's exterior finish instead.
+  const extSide = wallExteriorSide(elements, wall.floor, wall);
+  const sharedFinish = extSide ? null : buildingExteriorFinish(elements, wall.floor);
 
   // per-face finish varies along the length: a span covering t wins, else the
   // whole-face finish, else the base — cached so identical runs share a material
@@ -238,6 +231,9 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     }
     return finishMat(whole);
   };
+  // material for the thickness edges: the exterior side's finish, or (for a
+  // shared divider) the building's exterior finish, never an interior colour
+  const sharedMat = sharedFinish ? finishMat(sharedFinish) : mat;
 
   const seg = (t0: number, t1: number, y0: number, y1: number): void => {
     const L = t1 - t0;
@@ -245,10 +241,9 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     const midT = (t0 + t1) / 2;
     const matPos = faceAt(wall.facePosSpans, wall.facePos, midT);
     const matNeg = faceAt(wall.faceNegSpans, wall.faceNeg, midT);
-    // facePos(matPos) lands on the box -z face = the -nPos side, faceNeg on +nPos,
-    // so the exterior (away from the plan centre) finish is the opposite of what
-    // exteriorIsPos names for the +nPos side — used for the length-end caps
-    const capMat = exteriorIsPos ? matNeg : matPos;
+    // +normal side is faceNeg(matNeg), -normal is facePos(matPos); the thickness
+    // takes the exterior side's finish (or the shared building exterior finish)
+    const capMat = extSide === 'pos' ? matNeg : extSide === 'neg' ? matPos : sharedMat;
     const geo = new THREE.BoxGeometry(i2m(L), i2m(y1 - y0), i2m(wall.thickIn));
     scaleBoxUV(geo, L * rep, (y1 - y0) * rep);
     // box material order: +x, -x, +y, -y, +z, -z. The mesh's yaw maps its
@@ -303,7 +298,7 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   // per corner — clad in the exterior finish — owned by the lowest-id wall there
   // so it is drawn exactly once.
   const weldTol = wall.thickIn + 3;
-  const exteriorMat = exteriorIsPos ? faceAt(wall.faceNegSpans, wall.faceNeg, len / 2) : faceAt(wall.facePosSpans, wall.facePos, len / 2);
+  const exteriorMat = extSide === 'pos' ? faceAt(wall.faceNegSpans, wall.faceNeg, len / 2) : extSide === 'neg' ? faceAt(wall.facePosSpans, wall.facePos, len / 2) : sharedMat;
   const cornerPost = (p: Vec2): void => {
     const here = floorWalls.filter(
       (e) => Math.hypot(e.a.x - p.x, e.a.z - p.z) <= weldTol || Math.hypot(e.b.x - p.x, e.b.z - p.z) <= weldTol,

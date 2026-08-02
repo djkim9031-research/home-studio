@@ -64,6 +64,56 @@ function faceSegments(wall: Wall, plusSide: boolean, rooms: Vec2[][], len: numbe
   return segs;
 }
 
+// memoise the room detection within one mesh rebuild (called once per wall)
+let regionMemo: { key: string; rooms: Vec2[][] } | null = null;
+function roomsFor(elements: PlacedElement[], floor: number): Vec2[][] {
+  const ws = floorWalls(elements, floor);
+  let key = `${floor}:${ws.length}`;
+  for (const w of ws) key += `|${w.a.x},${w.a.z},${w.b.x},${w.b.z}`;
+  if (regionMemo && regionMemo.key === key) return regionMemo.rooms;
+  const rooms = detectEnclosedRegions(elements, floor);
+  regionMemo = { key, rooms };
+  return rooms;
+}
+
+/** Which physical side of a wall faces the exterior: 'pos' = the +normal side,
+ * 'neg' = the -normal side, or null when both sides are interior (a wall shared
+ * between two rooms). Used to decide what finish the thickness edges take. */
+export function wallExteriorSide(elements: PlacedElement[], floor: number, wall: Wall): 'pos' | 'neg' | null {
+  const rooms = roomsFor(elements, floor);
+  const t = wallLen(wall) / 2;
+  const posInterior = faceRegionAt(wall, true, t, rooms) >= 0;
+  const negInterior = faceRegionAt(wall, false, t, rooms) >= 0;
+  if (posInterior && negInterior) return null; // shared wall — no exterior face
+  if (posInterior) return 'neg'; // interior on +normal ⇒ exterior on -normal
+  return 'pos'; // -normal interior (or freestanding) ⇒ treat +normal as exterior
+}
+
+function spanFinishAt(spans: FaceSpan[] | undefined, whole: WallFace | undefined, t: number): { textureId: string; color: string } | null {
+  if (spans) {
+    const sp = spans.find((s) => t >= Math.min(s.from, s.to) - 0.01 && t <= Math.max(s.from, s.to) + 0.01);
+    return sp ? { textureId: sp.textureId, color: sp.color } : null;
+  }
+  return whole ? { textureId: whole.textureId, color: whole.color } : null;
+}
+
+/** The finish covering the exterior face of a representative exterior wall —
+ * what the thickness edges of interior divider walls should wear so the outside
+ * envelope reads continuously (never an interior colour). */
+export function buildingExteriorFinish(elements: PlacedElement[], floor: number): { textureId: string; color: string } | null {
+  const rooms = roomsFor(elements, floor);
+  for (const w of floorWalls(elements, floor)) {
+    const t = wallLen(w) / 2;
+    const posInterior = faceRegionAt(w, true, t, rooms) >= 0;
+    const negInterior = faceRegionAt(w, false, t, rooms) >= 0;
+    if (posInterior && negInterior) continue; // shared wall has no exterior face
+    // exterior side: +normal exterior ⇒ faceNeg*, -normal exterior ⇒ facePos*
+    const f = posInterior ? spanFinishAt(w.facePosSpans, w.facePos, t) : spanFinishAt(w.faceNegSpans, w.faceNeg, t);
+    if (f) return f;
+  }
+  return null;
+}
+
 /** Which group the clicked face belongs to: a room index, or -1 for exterior. */
 export function faceGroupTarget(elements: PlacedElement[], floor: number, wall: Wall, plusSide: boolean, tClick: number): number {
   const rooms = detectEnclosedRegions(elements, floor);
