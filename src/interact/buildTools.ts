@@ -589,9 +589,40 @@ export class WallpaperTool implements Tool {
 
   onMove(): void {}
 
+  /** Preview which surface a click would paint: the room polygon when the
+   * cursor is over an interior target, nothing over the outside shell. */
+  onHover(floor: Vec2 | null, ev: PointerEvent): void {
+    const s = store.getState();
+    const nPos = (w: Wall): Vec2 => {
+      const d = wallDir(w);
+      return { x: -d.z, z: d.x };
+    };
+    const hit = this.ctx.pickWall(ev);
+    const floorDist = this.ctx.floorHitDistance(ev);
+    let seed: Vec2 | null = floor;
+    if (hit && (floorDist === null || hit.distance < floorDist - 0.02)) {
+      const w = s.elements.find((x): x is Wall => x.kind === 'wall' && x.id === hit.wallId);
+      if (w) {
+        const n = nPos(w);
+        const proj = projectOnWall(w, hit.point);
+        const at = wallPointAt(w, Math.max(0, Math.min(wallLen(w), proj.t)));
+        const cam = this.ctx.cameraPlanePos();
+        const sign = (cam.x - at.x) * n.x + (cam.z - at.z) * n.z >= 0 ? 1 : -1;
+        seed = { x: at.x + n.x * (w.thickIn / 2 + 5) * sign, z: at.z + n.z * (w.thickIn / 2 + 5) * sign };
+      }
+    }
+    const region = seed ? fillRegion(s.elements, s.activeFloor, seed) : ({ ok: false } as const);
+    if (region.ok) {
+      store.setGhost({ kind: 'region', floor: s.activeFloor, polygon: region.polygon, valid: true });
+    } else {
+      store.setGhost(null);
+    }
+  }
+
   onUp(floor: Vec2 | null, ev: PointerEvent): void {
     const down = this.downAt;
     this.downAt = null;
+    store.setGhost(null);
     if (!down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
     const s = store.getState();
     const walls = wallsOn(s.activeFloor);
@@ -676,34 +707,31 @@ export class WallpaperTool implements Tool {
       const c = polyCentroid(regionPolygon);
       for (const w of targets) updates.push({ id: w.id, patch: patchFor(facingPos(w, c)) });
     } else {
-      // exterior run: paint the OUTWARD face — away from whatever room the
-      // wall borders; a wall between two rooms (no exterior side) is skipped
+      // Exterior shell: the outside is one group. A wall face is exterior when
+      // a point just off it lies OUTSIDE every enclosed room. Each connected
+      // wall (the whole rect/circle shell + any wall joined to it) contributes
+      // its outward faces; a wall fully between rooms has none and is skipped.
       const regions = detectEnclosedRegions(s.elements, s.activeFloor);
-      const centroids = regions.map(polyCentroid);
-      let bx = 0;
-      let bz = 0;
-      for (const w of targets) {
-        bx += (w.a.x + w.b.x) / 2;
-        bz += (w.a.z + w.b.z) / 2;
-      }
-      bx /= targets.length;
-      bz /= targets.length;
-      const buildCentroid = { x: bx, z: bz };
-      for (const w of targets) {
+      const outside = (p: Vec2): boolean => !regions.some((r) => pointInPolygon(p, r));
+      const faceSample = (w: Wall, towardPos: boolean): Vec2 => {
+        const d = wallDir(w);
+        const n = { x: -d.z, z: d.x };
+        const sign = towardPos ? 1 : -1;
         const mid = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 };
-        // nearest room this wall borders (its interior side)
-        let interior: Vec2 | null = null;
-        let bestD = Infinity;
-        for (const c of centroids) {
-          const dd = Math.hypot(c.x - mid.x, c.z - mid.z);
-          if (dd < bestD) {
-            bestD = dd;
-            interior = c;
-          }
+        const off = w.thickIn / 2 + 6;
+        return { x: mid.x + n.x * off * sign, z: mid.z + n.z * off * sign };
+      };
+      for (const w of targets) {
+        const posOut = outside(faceSample(w, true));
+        const negOut = outside(faceSample(w, false));
+        if (posOut && !negOut) updates.push({ id: w.id, patch: patchFor(true) });
+        else if (negOut && !posOut) updates.push({ id: w.id, patch: patchFor(false) });
+        else if (posOut && negOut) {
+          // both sides open (a fin sticking out) — paint the clicked side
+          const cam = this.ctx.cameraPlanePos();
+          updates.push({ id: w.id, patch: patchFor(facingPos(w, cam)) });
         }
-        const inward = interior ?? buildCentroid;
-        // exterior = the side NOT toward the interior
-        updates.push({ id: w.id, patch: patchFor(!facingPos(w, inward)) });
+        // both interior (party wall) → no exterior face, skip
       }
     }
     if (!updates.length) {
@@ -716,8 +744,6 @@ export class WallpaperTool implements Tool {
     store.commitLiveEdit(originals);
     this.ctx.toast(`Painted ${updates.length} wall face${updates.length > 1 ? 's' : ''}.`);
   }
-
-  onHover(): void {}
 
   cancel(): void {
     store.setGhost(null);
