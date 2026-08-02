@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { COLORS, i2m } from '../constants';
 import { formatFeetInchesFull } from '../core/format';
-import { wallLen, wallPointAt } from '../core/validity';
+import { wallDir, wallLen, wallPointAt } from '../core/validity';
 import type { GhostState } from '../state/store';
 import { floorBaseIn, type PlacedElement, type Wall } from '../types';
 import { makeChip, setChipText } from './chips';
@@ -114,6 +114,22 @@ export class GhostVisual {
       geo.scale(i2m(1), -i2m(1), i2m(1));
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.y = i2m(floorBaseIn(elements, ghost.floor) + 1);
+      this.group.add(mesh);
+    }
+
+    if (ghost.kind === 'patch') {
+      const wall = elements.find((e): e is Wall => e.kind === 'wall' && e.id === ghost.wallId);
+      if (!wall) return;
+      const baseY = floorBaseIn(elements, wall.floor);
+      const d = wallDir(wall);
+      const sign = ghost.face === 'pos' ? 1 : -1;
+      const nrm = { x: -d.z * sign, z: d.x * sign };
+      const mid = wallPointAt(wall, (ghost.fromT + ghost.toT) / 2);
+      const off = wall.thickIn / 2 + 0.6;
+      const geo = new THREE.PlaneGeometry(i2m(ghost.toT - ghost.fromT), i2m(ghost.y1 - ghost.y0));
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(i2m(mid.x + nrm.x * off), i2m(baseY + (ghost.y0 + ghost.y1) / 2), i2m(mid.z + nrm.z * off));
+      mesh.rotation.y = -Math.atan2(wall.b.z - wall.a.z, wall.b.x - wall.a.x) + (ghost.face === 'pos' ? 0 : Math.PI);
       this.group.add(mesh);
     }
   }

@@ -33,6 +33,16 @@ export interface FaceSpan extends WallFace {
   to: number;
 }
 
+/** A rectangular wallpaper patch on one wall face, in inches. `fromT`/`toT`
+ * run along the wall length from endpoint a; `y0`/`y1` up from the floor. */
+export interface WallPatch extends WallFace {
+  face: 'pos' | 'neg';
+  fromT: number;
+  toT: number;
+  y0: number;
+  y1: number;
+}
+
 export interface Wall extends ElementBase {
   kind: 'wall';
   a: Vec2; // endpoints, inches
@@ -47,6 +57,8 @@ export interface Wall extends ElementBase {
    * an interior span and an exterior span split at the crossing point */
   facePosSpans?: FaceSpan[];
   faceNegSpans?: FaceSpan[];
+  /** rectangular wallpaper patches applied to a specific area of a face */
+  patches?: WallPatch[];
 }
 
 /** A door or window carried by a wall; depth is implicitly the wall's thickness. */

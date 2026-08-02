@@ -4,11 +4,11 @@ import { THUMBS } from './thumbnails';
 
 /** What the palette asks main.ts to arm. */
 export type ArmSpec =
-  | { tool: 'wall'; shape: 'line' | 'rect'; heightIn: number; thickIn: number; color: string; textureId: string; rectLenIn: number; rectWidIn: number; rectAnchor: 'tl' | 'tr' | 'bl' | 'br' | 'center' }
+  | { tool: 'wall'; shape: 'line' | 'rect'; heightIn: number; thickIn: number; color: string; textureId: string; rectLenIn: number; rectWidIn: number; rectAnchor: 'tl' | 'tr' | 'bl' | 'br' | 'center'; rectInside: { textureId: string; color: string }; rectOutside: { textureId: string; color: string } }
   | { tool: 'opening'; door: boolean; widthIn: number; heightIn: number; sillIn: number; styleId: string; color: string }
   | { tool: 'stair'; widthIn: number; runIn: number; flights: 1 | 2; styleId: string; textureId: string; color: string }
   | { tool: 'fill'; textureId: string; color: string }
-  | { tool: 'wallpaper'; textureId: string; color: string }
+  | { tool: 'wallpaper'; textureId: string; color: string; widthIn: number; heightIn: number; offXIn: number; offYIn: number }
   | { tool: 'room' };
 
 export interface Palette {
@@ -126,21 +126,28 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     const t = numInput('T"', DEFAULT_WALL_T, 2, 24);
     const tex = selInput('finish', WALL_TEXTURES);
     const col = colorInput('#f2eee6');
-    // L/W/anchor only apply to Rectangle; show/hide with the shape
-    const lw = [len.el, wid.el, anchor.el];
+    // rectangle rooms finish inside and outside separately
+    const inTex = selInput('inside', WALL_TEXTURES);
+    const inCol = colorInput('#e8dfd0');
+    const outTex = selInput('outside', WALL_TEXTURES);
+    const outCol = colorInput('#dfe8ee');
+    // L/W/anchor + inside/outside only apply to Rectangle; show/hide with shape
+    const rectOnly = [len.el, wid.el, anchor.el, inTex.el, inCol.el, outTex.el, outCol.el];
     const syncLW = (): void => {
       const on = shape.get() === 'rect';
-      for (const el of lw) el.style.display = on ? '' : 'none';
+      for (const el of rectOnly) el.style.display = on ? '' : 'none';
     };
     (shape.el.querySelector('select') as HTMLSelectElement).addEventListener('change', syncLW);
     syncLW();
     byCat.set('walls', [
-      card(THUMBS.wall, 'Wall — Straight: drag · Rectangle: set L×W, click to place', [shape.el, len.el, wid.el, anchor.el, h.el, t.el, tex.el, col.el], () => ({
+      card(THUMBS.wall, 'Wall — Straight: drag · Rectangle: set L×W + inside/outside finish, click to place', [shape.el, len.el, wid.el, anchor.el, h.el, t.el, tex.el, col.el, inTex.el, inCol.el, outTex.el, outCol.el], () => ({
         tool: 'wall',
         shape: shape.get() as 'line' | 'rect',
         rectLenIn: len.get(),
         rectWidIn: wid.get(),
         rectAnchor: anchor.get() as 'tl' | 'tr' | 'bl' | 'br' | 'center',
+        rectInside: { textureId: inTex.get(), color: inCol.get() },
+        rectOutside: { textureId: outTex.get(), color: outCol.get() },
         heightIn: h.get(),
         thickIn: t.get(),
         textureId: tex.get(),
@@ -235,11 +242,19 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
       });
       swatches.appendChild(b);
     }
+    const pw = numInput('W"', 48, 4, 480);
+    const ph = numInput('H"', 48, 4, 240);
+    const px = numInput('from edge x"', 12, 0, 480);
+    const py = numInput('from floor y"', 24, 0, 240);
     byCat.set('wallpaper', [
-      card(THUMBS.wallpaper, 'Wallpaper — click a room or a wall', [tex.el, col.el, swatches], () => ({
+      card(THUMBS.wallpaper, 'Wallpaper — set the patch size and offset, click a wall', [tex.el, col.el, pw.el, ph.el, px.el, py.el, swatches], () => ({
         tool: 'wallpaper',
         textureId: tex.get(),
         color: col.get(),
+        widthIn: pw.get(),
+        heightIn: ph.get(),
+        offXIn: px.get(),
+        offYIn: py.get(),
       })),
     ]);
   }

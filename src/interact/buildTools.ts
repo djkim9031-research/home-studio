@@ -4,7 +4,7 @@ import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
-import type { FaceSpan, FloorIndex, PlacedElement, Vec2, Wall } from '../types';
+import type { FaceSpan, FloorIndex, PlacedElement, Vec2, Wall, WallFace } from '../types';
 
 /** One tool owns the canvas at a time; the router dispatches gestures to it. */
 export interface Tool {
@@ -97,6 +97,9 @@ export interface WallArm {
   rectLenIn: number;
   rectWidIn: number;
   rectAnchor: RectAnchor;
+  /** rectangle rooms can finish their inside and outside faces separately */
+  rectInside?: { textureId: string; color: string };
+  rectOutside?: { textureId: string; color: string };
 }
 
 export class WallTool implements Tool {
@@ -115,6 +118,8 @@ export class WallTool implements Tool {
       rectLenIn: arm.rectLenIn ?? 144,
       rectWidIn: arm.rectWidIn ?? 120,
       rectAnchor: arm.rectAnchor ?? 'tl',
+      rectInside: arm.rectInside,
+      rectOutside: arm.rectOutside,
     };
     this.ctx = ctx;
   }
@@ -242,6 +247,23 @@ export class WallTool implements Tool {
       if (this.arm.shape === 'line') this.lastB = b;
       return;
     }
+    // rectangle rooms may finish inside and outside faces separately: the
+    // face toward the room center is the inside one
+    const center = this.arm.shape === 'rect' ? { x: (ra.x + rb.x) / 2, z: (ra.z + rb.z) / 2 } : null;
+    const faceFor = (r: { a: Vec2; b: Vec2 }): { facePos?: WallFace; faceNeg?: WallFace } => {
+      if (!center || (!this.arm.rectInside && !this.arm.rectOutside)) return {};
+      const dx = r.b.x - r.a.x;
+      const dz = r.b.z - r.a.z;
+      const nx = -dz;
+      const nz = dx;
+      const mid = { x: (r.a.x + r.b.x) / 2, z: (r.a.z + r.b.z) / 2 };
+      // facePos renders on the -normal side (the box's yaw-mapped -z face), so
+      // the face toward the room centre is faceNeg when the centre is on +normal
+      const insideIsPos = (center.x - mid.x) * nx + (center.z - mid.z) * nz >= 0;
+      const inside = this.arm.rectInside;
+      const outside = this.arm.rectOutside;
+      return insideIsPos ? { faceNeg: inside, facePos: outside } : { faceNeg: outside, facePos: inside };
+    };
     store.placeElementsBatch(
       fresh.map((r) => ({
         kind: 'wall' as const,
@@ -252,6 +274,7 @@ export class WallTool implements Tool {
         thickIn: this.arm.thickIn,
         color: this.arm.color,
         textureId: this.arm.textureId,
+        ...faceFor(r),
       })),
     );
     if (this.arm.shape === 'line') this.lastB = b; // chain: next segment starts here
@@ -575,14 +598,17 @@ export class FloorFillTool implements Tool {
 }
 
 // ---------------------------------------------------------------------------
-// Wallpaper: click inside a room to paint its bounding walls; click a wall
-// directly to paint every wall continuously connected to it (the exterior
-// shell paints as one).
+// Wallpaper: apply a rectangular patch to a chosen area of a wall face,
+// sized W×H and offset (x from the nearest wall edge, y from the floor).
 // ---------------------------------------------------------------------------
 
 export interface WallpaperArm {
   textureId: string;
   color: string;
+  widthIn: number;
+  heightIn: number;
+  offXIn: number;
+  offYIn: number;
 }
 
 function segPointDist(px: number, pz: number, a: Vec2, b: Vec2): number {
@@ -686,7 +712,14 @@ export class WallpaperTool implements Tool {
   private downAt: { x: number; y: number } | null = null;
 
   constructor(arm: Partial<WallpaperArm>, ctx: ToolContext) {
-    this.arm = { textureId: arm.textureId ?? 'paint', color: arm.color ?? '#f2eee6' };
+    this.arm = {
+      textureId: arm.textureId ?? 'paint',
+      color: arm.color ?? '#f2eee6',
+      widthIn: arm.widthIn ?? 48,
+      heightIn: arm.heightIn ?? 48,
+      offXIn: arm.offXIn ?? 12,
+      offYIn: arm.offYIn ?? 24,
+    };
     this.ctx = ctx;
   }
 
@@ -697,153 +730,68 @@ export class WallpaperTool implements Tool {
 
   onMove(): void {}
 
-  /** Preview which surface a click would paint: the room polygon when the
-   * cursor is over an interior target, nothing over the outside shell. */
-  onHover(floor: Vec2 | null, ev: PointerEvent): void {
-    const s = store.getState();
-    const nPos = (w: Wall): Vec2 => {
-      const d = wallDir(w);
-      return { x: -d.z, z: d.x };
-    };
-    const hit = this.ctx.pickWall(ev);
-    const floorDist = this.ctx.floorHitDistance(ev);
-    let seed: Vec2 | null = floor;
-    if (hit && (floorDist === null || hit.distance < floorDist - 0.02)) {
-      const w = s.elements.find((x): x is Wall => x.kind === 'wall' && x.id === hit.wallId);
-      if (w) {
-        const n = nPos(w);
-        const proj = projectOnWall(w, hit.point);
-        const at = wallPointAt(w, Math.max(0, Math.min(wallLen(w), proj.t)));
-        const cam = this.ctx.cameraPlanePos();
-        const sign = (cam.x - at.x) * n.x + (cam.z - at.z) * n.z >= 0 ? 1 : -1;
-        seed = { x: at.x + n.x * (w.thickIn / 2 + 5) * sign, z: at.z + n.z * (w.thickIn / 2 + 5) * sign };
-      }
-    }
-    const region = seed ? fillRegion(s.elements, s.activeFloor, seed) : ({ ok: false } as const);
-    if (region.ok) {
-      store.setGhost({ kind: 'region', floor: s.activeFloor, polygon: region.polygon, valid: true });
-    } else {
+  onHover(_floor: Vec2 | null, ev: PointerEvent): void {
+    const p = this.resolve(ev);
+    if (!p) {
       store.setGhost(null);
+      return;
     }
+    store.setGhost({ kind: 'patch', floor: store.getState().activeFloor, wallId: p.wall.id, face: p.face, fromT: p.fromT, toT: p.toT, y0: p.y0, y1: p.y1, valid: true });
   }
 
-  onUp(floor: Vec2 | null, ev: PointerEvent): void {
+  onUp(_floor: Vec2 | null, ev: PointerEvent): void {
     const down = this.downAt;
     this.downAt = null;
     store.setGhost(null);
     if (!down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
-    const s = store.getState();
-    const walls = wallsOn(s.activeFloor);
-    const nPosOf = (w: Wall): Vec2 => {
-      const d = wallDir(w);
-      return { x: -d.z, z: d.x };
-    };
+    const p = this.resolve(ev);
+    if (!p) {
+      this.ctx.toast('Click a wall face to apply the wallpaper patch.');
+      return;
+    }
+    store.updateElement(p.wall.id, {
+      patches: [
+        ...(p.wall.patches ?? []),
+        { face: p.face, fromT: p.fromT, toT: p.toT, y0: p.y0, y1: p.y1, textureId: this.arm.textureId, color: this.arm.color },
+      ],
+    });
+    this.ctx.toast('Wallpaper applied.');
+  }
 
-    // The floor's paint GROUPS are: the outside (exterior) and one interior
-    // per enclosed room. Classify the clicked face into a group, then paint
-    // every wall face that belongs to that same group.
-    // where did the click land — a point identifying the clicked face's side?
+  /** Resolve the clicked wall + face + the patch rectangle (clamped to fit). */
+  private resolve(ev: PointerEvent): { wall: Wall; face: 'pos' | 'neg'; fromT: number; toT: number; y0: number; y1: number } | null {
+    const s = store.getState();
     const hit = this.ctx.pickWall(ev);
     const floorDist = this.ctx.floorHitDistance(ev);
-    let facePoint: Vec2 | null = null;
-    if (hit && (floorDist === null || hit.distance < floorDist - 0.02)) {
-      const w = walls.find((x) => x.id === hit.wallId);
-      if (!w) return;
-      const n = nPosOf(w);
-      const proj = projectOnWall(w, hit.point);
-      const at = wallPointAt(w, Math.max(0, Math.min(wallLen(w), proj.t)));
-      // which side of the wall was clicked: the hit point itself when it lies
-      // clearly off the centerline, else the camera side (top-cap hits)
-      const perp = (hit.point.x - at.x) * n.x + (hit.point.z - at.z) * n.z;
-      let sign: 1 | -1;
-      if (Math.abs(perp) > 1) sign = perp >= 0 ? 1 : -1;
-      else {
-        const cam = this.ctx.cameraPlanePos();
-        sign = (cam.x - at.x) * n.x + (cam.z - at.z) * n.z >= 0 ? 1 : -1;
-      }
-      facePoint = { x: at.x + n.x * (w.thickIn / 2 + 6) * sign, z: at.z + n.z * (w.thickIn / 2 + 6) * sign };
-    } else if (floor) {
-      facePoint = floor; // clicking open floor inside a room
+    if (!hit || (floorDist !== null && hit.distance >= floorDist - 0.02)) return null;
+    const w = s.elements.find((x): x is Wall => x.kind === 'wall' && x.id === hit.wallId && x.floor === s.activeFloor);
+    if (!w) return null;
+    const L = wallLen(w);
+    const d = wallDir(w);
+    const n = { x: -d.z, z: d.x };
+    const t = Math.max(0, Math.min(L, projectOnWall(w, hit.point).t));
+    const at = wallPointAt(w, t);
+    // which face: the hit point's side of the wall plane, camera as fallback
+    const perp = (hit.point.x - at.x) * n.x + (hit.point.z - at.z) * n.z;
+    let sign: 1 | -1;
+    if (Math.abs(perp) > 1) sign = perp >= 0 ? 1 : -1;
+    else {
+      const cam = this.ctx.cameraPlanePos();
+      sign = (cam.x - at.x) * n.x + (cam.z - at.z) * n.z >= 0 ? 1 : -1;
     }
-    if (!facePoint) {
-      this.ctx.toast(
-        walls.length ? 'Click a wall face, or inside a room, to paint that group.' : 'Draw some walls first.',
-      );
-      return;
-    }
-
-    // The interior group is EXACTLY the room the click sits in — the same
-    // fillRegion used for that room's floor and label, so walls, floor and
-    // label are one and the same interior. Outside any room is the exterior.
-    const clickedRoom = fillRegion(s.elements, s.activeFloor, facePoint);
-    const targetRoom = clickedRoom.ok ? clickedRoom.polygon : null;
-    const regions = detectEnclosedRegions(s.elements, s.activeFloor);
-    const finish = { textureId: this.arm.textureId, color: this.arm.color };
-    const matches = (p: Vec2): boolean =>
-      targetRoom ? pointInPolygon(p, targetRoom) : !regions.some((r) => pointInPolygon(p, r));
-    const targets = walls;
-    const faceSampleAt = (w: Wall, towardPos: boolean, t: number): Vec2 => {
-      const d = wallDir(w);
-      const n = { x: -d.z, z: d.x };
-      const sign = towardPos ? 1 : -1;
-      const at = wallPointAt(w, t);
-      const off = w.thickIn / 2 + 6;
-      return { x: at.x + n.x * off * sign, z: at.z + n.z * off * sign };
-    };
-    const matchingRanges = (w: Wall, towardPos: boolean): [number, number][] => {
-      const L = wallLen(w);
-      const step = 3; // inches
-      // sample the whole length, then find contiguous matching runs; a lone
-      // outlier sample (grid/boundary noise) is bridged so a face that is
-      // wholly in one group becomes a single clean span
-      const n = Math.max(2, Math.ceil(L / step));
-      const on: boolean[] = [];
-      for (let i = 0; i <= n; i++) on.push(matches(faceSampleAt(w, towardPos, (L * i) / n)));
-      for (let i = 1; i < n; i++) if (!on[i] && on[i - 1] && on[i + 1]) on[i] = true; // bridge singletons
-      const ranges: [number, number][] = [];
-      let start: number | null = null;
-      for (let i = 0; i <= n; i++) {
-        const t = (L * i) / n;
-        if (on[i] && start === null) start = t;
-        else if (!on[i] && start !== null) {
-          ranges.push([start, t]);
-          start = null;
-        }
-      }
-      if (start !== null) ranges.push([start, L]);
-      // snap runs that reach the ends to the exact ends
-      for (const r of ranges) {
-        if (r[0] <= step * 1.5) r[0] = 0;
-        if (r[1] >= L - step * 1.5) r[1] = L;
-      }
-      return ranges;
-    };
-
-    const updates: { id: string; patch: Partial<PlacedElement> }[] = [];
-    for (const w of targets) {
-      const patch: Partial<Wall> = {};
-      let painted = false;
-      for (const towardPos of [true, false]) {
-        const ranges = matchingRanges(w, towardPos);
-        if (!ranges.length) continue;
-        const spans = mergeSpans(towardPos ? w.facePosSpans : w.faceNegSpans, ranges, finish);
-        if (towardPos) patch.facePosSpans = spans;
-        else patch.faceNegSpans = spans;
-        painted = true;
-      }
-      if (painted) updates.push({ id: w.id, patch: patch as Partial<PlacedElement> });
-    }
-    if (!updates.length) {
-      this.ctx.toast(
-        targetRoom ? 'Nothing to paper there.' : 'Nothing exterior to paint there.',
-      );
-      return;
-    }
-    const ids = new Set(updates.map((u) => u.id));
-    const originals = structuredClone(targets.filter((w) => ids.has(w.id))) as PlacedElement[];
-    store.updateElementsLive(updates);
-    store.commitLiveEdit(originals);
-    this.ctx.toast(`Painted ${updates.length} wall${updates.length > 1 ? 's' : ''}.`);
+    const face: 'pos' | 'neg' = sign >= 0 ? 'pos' : 'neg';
+    // horizontal: offset from the wall end nearest the click, patch extends inward
+    const width = Math.min(this.arm.widthIn, L);
+    let fromT: number;
+    if (t < L / 2) fromT = this.arm.offXIn;
+    else fromT = L - this.arm.offXIn - width;
+    fromT = Math.max(0, Math.min(L - width, fromT));
+    const toT = fromT + width;
+    // vertical: offset up from the floor
+    const y0 = Math.max(0, Math.min(w.heightIn - 1, this.arm.offYIn));
+    const y1 = Math.min(w.heightIn, y0 + this.arm.heightIn);
+    if (toT - fromT < 1 || y1 - y0 < 1) return null;
+    return { wall: w, face, fromT, toT, y0, y1 };
   }
 
   cancel(): void {

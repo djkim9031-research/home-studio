@@ -13,6 +13,7 @@ import {
   type PlacedElement,
   type Room,
   type Stair,
+  type Vec2,
   type Wall,
   type WallFace,
 } from '../types';
@@ -198,6 +199,20 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   const dir = wallDir(wall);
   const yaw = -Math.atan2(wall.b.z - wall.a.z, wall.b.x - wall.a.x);
 
+  // bury each box end cap at welded corners so no bright plaster seam shows:
+  // extend a solid end by half the thickness when another wall meets it there
+  const weldTol = wall.thickIn + 3;
+  const meets = (p: Vec2): boolean =>
+    elements.some(
+      (e) =>
+        e.kind === 'wall' &&
+        e.id !== wall.id &&
+        e.floor === wall.floor &&
+        (Math.hypot(e.a.x - p.x, e.a.z - p.z) <= weldTol || Math.hypot(e.b.x - p.x, e.b.z - p.z) <= weldTol),
+    );
+  const extA = meets(wall.a) ? wall.thickIn / 2 : 0;
+  const extB = meets(wall.b) ? wall.thickIn / 2 : 0;
+
   // per-face finish varies along the length: a span covering t wins, else the
   // whole-face finish, else the base — cached so identical runs share a material
   const matCache = new Map<string, THREE.MeshStandardMaterial>();
@@ -226,8 +241,10 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     const L = t1 - t0;
     if (L < 0.5 || y1 - y0 < 0.5) return;
     const midT = (t0 + t1) / 2;
-    const matPos = faceAt(wall.facePosSpans, wall.facePos, midT);
-    const matNeg = faceAt(wall.faceNegSpans, wall.faceNeg, midT);
+    // corner extensions run past [0,len]; clamp so the nub keeps the end finish
+    const faceT = Math.max(0, Math.min(len, midT));
+    const matPos = faceAt(wall.facePosSpans, wall.facePos, faceT);
+    const matNeg = faceAt(wall.faceNegSpans, wall.faceNeg, faceT);
     const geo = new THREE.BoxGeometry(i2m(L), i2m(y1 - y0), i2m(wall.thickIn));
     scaleBoxUV(geo, L * rep, (y1 - y0) * rep);
     // box material order: +x, -x, +y, -y, +z, -z. The mesh's yaw maps its
@@ -263,7 +280,7 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     seg(c, t1, 0, wall.heightIn);
   };
 
-  let cursor = 0;
+  let cursor = -extA;
   for (const c of cuts) {
     const t0 = Math.max(cursor, c.t0);
     const t1 = Math.min(len, c.t1);
@@ -272,10 +289,37 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     if (c.sill > 0) seg(t0, t1, 0, c.sill); // sill wall below windows
     cursor = t1;
   }
-  if (cursor < len) solid(cursor, len);
-  void dir;
+  if (cursor < len + extB) solid(cursor, len + extB);
+
+  // wallpaper patches: a thin decal quad proud of the chosen face
+  const patchMats: THREE.Material[] = [];
+  for (const p of wall.patches ?? []) {
+    const w = p.toT - p.fromT;
+    const h = p.y1 - p.y0;
+    if (w < 1 || h < 1) continue;
+    const pmat = finishMaterial(p.textureId, p.color);
+    pmat.side = THREE.DoubleSide;
+    patchMats.push(pmat);
+    const geo = new THREE.PlaneGeometry(i2m(w), i2m(h));
+    const rep = finishRepeatPerIn(p.textureId);
+    const uv = geo.attributes.uv as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w * rep, uv.getY(i) * h * rep);
+    uv.needsUpdate = true;
+    const mesh = new THREE.Mesh(geo, pmat);
+    const mid = wallPointAt(wall, (p.fromT + p.toT) / 2);
+    // face pos = plan +normal (-dz, dx); a plane's +z points that way after yaw
+    const sign = p.face === 'pos' ? 1 : -1;
+    const nrm = { x: -dir.z * sign, z: dir.x * sign };
+    const off = wall.thickIn / 2 + 0.4;
+    mesh.position.set(i2m(mid.x + nrm.x * off), i2m(baseY + (p.y0 + p.y1) / 2), i2m(mid.z + nrm.z * off));
+    mesh.rotation.y = yaw + (p.face === 'pos' ? 0 : Math.PI);
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
   void wallUp;
-  const clipMats = [mat, ...matCache.values()];
+  const clipMats = [mat, ...matCache.values(), ...patchMats];
   return { group, clipMats };
 }
 

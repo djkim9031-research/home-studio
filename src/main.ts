@@ -406,6 +406,35 @@ if (params.get('qa') === 'shapecard') {
     }, 500);
   }, 3000);
 }
+if (params.get('qa') === 'rectio') {
+  // place a rect room with distinct inside (stripes) / outside (brick) finishes
+  setTimeout(() => {
+    store.clearAll();
+    const tool = new WallTool(
+      { shape: 'rect', rectLenIn: 240, rectWidIn: 168, rectAnchor: 'center', rectInside: { textureId: 'stripes', color: '#d9d2e6' }, rectOutside: { textureId: 'brick', color: '#c76f4a' } },
+      toolCtx,
+    );
+    (tool as unknown as { a: { x: number; z: number } }).a = { x: 0, z: 0 };
+    (tool as unknown as { onUp(f: { x: number; z: number }): void }).onUp({ x: 0, z: 0 });
+    const walls = store.getState().elements.filter((e) => e.kind === 'wall');
+    const faces = walls.map((w) => (w.kind === 'wall' ? `${w.facePos?.textureId ?? '-'}|${w.faceNeg?.textureId ?? '-'}` : '')).join(' ');
+    document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
+  }, 2500);
+}
+if (params.get('qa') === 'patch') {
+  // apply two wallpaper patches to a seed-room wall face and render them
+  setTimeout(() => {
+    const wall = store.getState().elements.find((e) => e.kind === 'wall' && e.textureId !== 'brick');
+    if (wall && wall.kind === 'wall') {
+      store.updateElement(wall.id, {
+        patches: [
+          { face: 'pos', fromT: 24, toT: 84, y0: 24, y1: 72, textureId: 'stripes', color: '#c76f4a' },
+          { face: 'pos', fromT: 108, toT: 156, y0: 36, y1: 84, textureId: 'damask', color: '#5b7a99' },
+        ],
+      });
+    }
+  }, 2500);
+}
 if (params.get('qa') === 'merge') {
   // place two adjacent rectangles sharing an edge; the shared wall must not double
   setTimeout(() => {
