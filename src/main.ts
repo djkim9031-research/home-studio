@@ -485,15 +485,20 @@ if (params.get('qa') === 'magnet') {
     store.placeElementsBatch([mk({ x: 0, z: 0 }, { x: 192, z: 0 }), mk({ x: 192, z: 0 }, { x: 192, z: 144 }), mk({ x: 192, z: 144 }, { x: 0, z: 144 }), mk({ x: 0, z: 144 }, { x: 0, z: 0 })]);
     // put a door on the east wall (x=192) — the merge should drop it
     const eastWall = store.getState().elements.find((e) => e.kind === 'wall' && e.a.x === 192 && e.b.x === 192);
-    if (eastWall) store.placeElement({ kind: 'door', floor: 0, wallId: eastWall.id, centerIn: 72, widthIn: 36, heightIn: 80, sillIn: 0, styleId: 'panel', color: '#f5f2ea' } as never);
+    if (eastWall) {
+      store.placeElement({ kind: 'door', floor: 0, wallId: eastWall.id, centerIn: 72, widthIn: 36, heightIn: 80, sillIn: 0, styleId: 'panel', color: '#f5f2ea' } as never);
+      store.updateElement(eastWall.id, { patches: [{ face: 'pos', fromT: 20, toT: 100, y0: 24, y1: 72, textureId: 'brick', color: '#c76f4a' }] } as never);
+    }
     const doorsBefore = store.getState().elements.filter((e) => e.kind === 'door').length;
+    const patchesBefore = (store.getState().elements.find((e) => e.id === eastWall?.id) as { patches?: unknown[] } | undefined)?.patches?.length ?? 0;
     const tool = new WallTool({ shape: 'rect', rectLenIn: 192, rectWidIn: 144, rectAnchor: 'tl' }, toolCtx);
     (tool as unknown as { a: { x: number; z: number } }).a = { x: 190, z: 0 };
     (tool as unknown as { onUp(f: { x: number; z: number }): void }).onUp({ x: 190, z: 0 });
     const walls = store.getState().elements.filter((e) => e.kind === 'wall') as { a: { x: number }; b: { x: number } }[];
     const vertX = walls.filter((w) => Math.abs(w.a.x - w.b.x) < 1).map((w) => Math.round(w.a.x)).sort((p, q) => p - q);
     const doorsAfter = store.getState().elements.filter((e) => e.kind === 'door').length;
-    document.title = `QAMAGNET walls=${walls.length} vertX=[${vertX.join(',')}] doors=${doorsBefore}->${doorsAfter}`;
+    const patchesAfter = (store.getState().elements.find((e) => e.id === eastWall?.id) as { patches?: unknown[] } | undefined)?.patches?.length ?? 0;
+    document.title = `QAMAGNET walls=${walls.length} doors=${doorsBefore}->${doorsAfter} patches=${patchesBefore}->${patchesAfter}`;
     rig.toDefaultView();
   }, 2600);
 }

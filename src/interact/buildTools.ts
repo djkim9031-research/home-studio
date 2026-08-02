@@ -6,7 +6,7 @@ import { cutSpans, faceGroupTarget, paintGroupPatches, regroupClearPatches } fro
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
 import type { GhostState } from '../state/store';
-import { floorBaseIn, type FaceSpan, type FloorIndex, type PlacedElement, type Vec2, type Wall, type WallFace } from '../types';
+import { floorBaseIn, type FaceSpan, type FloorIndex, type PlacedElement, type Vec2, type Wall, type WallFace, type WallPatch } from '../types';
 
 /** One adjustable offset in the location finetuner (a slider + a number box). */
 export interface FinetuneAxis {
@@ -392,6 +392,10 @@ export class WallTool implements Tool {
         const patch: Partial<PlacedElement> = {};
         (patch as { facePosSpans?: FaceSpan[] }).facePosSpans = cutSpans(w.facePosSpans, w.facePos, wL, [[lo, hi]]);
         (patch as { faceNegSpans?: FaceSpan[] }).faceNegSpans = cutSpans(w.faceNegSpans, w.faceNeg, wL, [[lo, hi]]);
+        // wallpaper patches whose surface run falls in the overlap are dropped too
+        if (w.patches?.length) {
+          (patch as { patches?: WallPatch[] }).patches = w.patches.filter((p) => !(p.toT > lo && p.fromT < hi));
+        }
         mergeUpdates.push({ id: w.id, patch });
         for (const e of existing.length ? store.getState().elements : []) {
           if ((e.kind === 'door' || e.kind === 'window') && e.wallId === w.id && e.centerIn >= lo && e.centerIn <= hi) droppedOpenings.push(e.id);
@@ -434,8 +438,10 @@ export class WallTool implements Tool {
   onHover(floor: Vec2 | null): void {
     if (this.a || !floor) return;
     if (this.arm.shape === 'rect') {
-      // preview the L×W room the next click will drop, at the chosen anchor
-      const { a: ra, b: rb } = this.rectCorners(gridPt(floor));
+      // preview the L×W room the next click will drop, at the chosen anchor —
+      // magnet-snapped so the ghost visibly clings to a wall it would merge with
+      const c = this.rectCorners(gridPt(floor));
+      const { a: ra, b: rb } = magnetThickness('rect', c.a, c.b, wallsOn(store.getState().activeFloor), this.arm.thickIn);
       const { runs, label, valid } = this.runsFor(ra, rb);
       store.setGhost({
         kind: 'wall',
