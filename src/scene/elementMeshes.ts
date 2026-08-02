@@ -3,7 +3,7 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { COLORS, i2m, IN, JOIST_T } from '../constants';
 import { finishMaterial, finishRepeatPerIn } from '../data/registry';
 import { openingsOf, wallDir, wallLen, wallPointAt } from '../core/validity';
-import { buildingExteriorFinish, wallExteriorSide, wallSharedInterior } from '../core/wallGroups';
+import { finishFacingPoint } from '../core/wallGroups';
 import {
   floorBaseIn,
   polygonSqft,
@@ -201,13 +201,6 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   const yaw = -Math.atan2(wall.b.z - wall.a.z, wall.b.x - wall.a.x);
 
   const floorWalls = elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === wall.floor);
-  // Only the VERTICAL thickness edges are ever finished (the top is always bare):
-  // an exterior wall's edges take its exterior finish, a partition inside one room
-  // takes that room's interior finish, and a divider between two rooms borrows the
-  // building's exterior finish. `extSide` = which physical side is exterior.
-  const extSide = wallExteriorSide(elements, wall.floor, wall);
-  const partition = extSide ? null : wallSharedInterior(elements, wall.floor, wall);
-  const sharedFinish = partition === 'divider' ? buildingExteriorFinish(elements, wall.floor) : null;
 
   // per-face finish varies along the length: a span covering t wins, else the
   // whole-face finish, else the base — cached so identical runs share a material
@@ -232,9 +225,16 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     }
     return finishMat(whole);
   };
-  // material for the thickness edges: the exterior side's finish, or (for a
-  // shared divider) the building's exterior finish, never an interior colour
-  const sharedMat = sharedFinish ? finishMat(sharedFinish) : mat;
+  // a vertical thickness edge wears the finish of the region it actually faces —
+  // sampled just off the edge, so any wall gets the right colour at each end
+  const off = wall.thickIn / 2 + 3;
+  const edgeMat = (p: Vec2): THREE.MeshStandardMaterial => {
+    const f = finishFacingPoint(elements, wall.floor, p);
+    return f ? finishMat(f) : mat;
+  };
+  // the two length-end caps: what sits just beyond each end of the wall
+  const endAMat = edgeMat({ x: wall.a.x - dir.x * off, z: wall.a.z - dir.z * off });
+  const endBMat = edgeMat({ x: wall.b.x + dir.x * off, z: wall.b.z + dir.z * off });
 
   const seg = (t0: number, t1: number, y0: number, y1: number): void => {
     const L = t1 - t0;
@@ -242,16 +242,16 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     const midT = (t0 + t1) / 2;
     const matPos = faceAt(wall.facePosSpans, wall.facePos, midT);
     const matNeg = faceAt(wall.faceNegSpans, wall.faceNeg, midT);
-    // the VERTICAL length-end caps carry the thickness finish: an exterior wall's
-    // exterior side (+normal=faceNeg, -normal=facePos), a partition's own room
-    // finish, or a divider's building-exterior finish. Top and bottom stay bare.
-    const capMat = extSide === 'pos' ? matNeg : extSide === 'neg' ? matPos : partition === 'partition' ? matPos : sharedMat;
+    // only the wall's true ends are exposed caps; internal segment caps are buried
+    // by the neighbouring segment, so leave them bare.
+    const capB = t1 >= len - 0.5 ? endBMat : mat; // +x cap (b end)
+    const capA = t0 <= 0.5 ? endAMat : mat; // -x cap (a end)
     const geo = new THREE.BoxGeometry(i2m(L), i2m(y1 - y0), i2m(wall.thickIn));
     scaleBoxUV(geo, L * rep, (y1 - y0) * rep);
     // box material order: +x, -x, +y, -y, +z, -z. yaw maps local -z onto the plan
     // +normal (-dz, dx), so facePos → the -z face. Only the ±x edges are finished;
     // the +y top and -y bottom are always bare.
-    const m = new THREE.Mesh(geo, [capMat, capMat, mat, mat, matNeg, matPos]);
+    const m = new THREE.Mesh(geo, [capB, capA, mat, mat, matNeg, matPos]);
     const mid = wallPointAt(wall, midT);
     m.position.set(i2m(mid.x), i2m(baseY + (y0 + y1) / 2), i2m(mid.z));
     m.rotation.y = yaw;
@@ -295,10 +295,9 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
 
   // corner posts: where walls weld at a shared endpoint the box ends leave an
   // unfilled outer notch (and their caps z-fight). Fill it with ONE square post
-  // per corner — its VERTICAL sides clad in the thickness finish, top bare —
-  // owned by the lowest-id wall there so it is drawn exactly once.
+  // per corner — each VERTICAL side clad in the finish of the region it faces
+  // (top bare), owned by the lowest-id wall there so it is drawn exactly once.
   const weldTol = wall.thickIn + 3;
-  const exteriorMat = extSide === 'pos' ? faceAt(wall.faceNegSpans, wall.faceNeg, len / 2) : extSide === 'neg' ? faceAt(wall.facePosSpans, wall.facePos, len / 2) : partition === 'partition' ? faceAt(wall.facePosSpans, wall.facePos, len / 2) : sharedMat;
   const cornerPost = (p: Vec2): void => {
     const here = floorWalls.filter(
       (e) => Math.hypot(e.a.x - p.x, e.a.z - p.z) <= weldTol || Math.hypot(e.b.x - p.x, e.b.z - p.z) <= weldTol,
@@ -306,7 +305,11 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     if (here.length < 2) return; // nothing to join
     if (here.some((e) => e.id < wall.id)) return; // a lower-id wall owns this corner
     const geo = new THREE.BoxGeometry(i2m(wall.thickIn), i2m(wall.heightIn), i2m(wall.thickIn));
-    const post = new THREE.Mesh(geo, [exteriorMat, exteriorMat, mat, mat, exteriorMat, exteriorMat]);
+    const px = edgeMat({ x: p.x + off, z: p.z });
+    const nx = edgeMat({ x: p.x - off, z: p.z });
+    const pz = edgeMat({ x: p.x, z: p.z + off });
+    const nz = edgeMat({ x: p.x, z: p.z - off });
+    const post = new THREE.Mesh(geo, [px, nx, mat, mat, pz, nz]);
     post.position.set(i2m(p.x), i2m(baseY + wall.heightIn / 2), i2m(p.z));
     post.castShadow = true;
     post.receiveShadow = true;

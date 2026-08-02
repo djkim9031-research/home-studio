@@ -413,6 +413,12 @@ if (params.get('cam') === 'low') {
   const seed = params.get('seed');
   if (seed === 'room') openProject(seedRoom());
   else if (seed === 'twoFloor') openProject(seedTwoFloor());
+  if (params.get('loadtest') === '1') {
+    fetch('/test.json')
+      .then((r) => r.json())
+      .then((d) => openProject(d.project as HomeProject))
+      .catch(() => undefined);
+  }
   const openParam = params.get('open');
   if (openParam) {
     const target = listProjects().find(

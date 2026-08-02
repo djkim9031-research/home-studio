@@ -114,6 +114,36 @@ export function buildingExteriorFinish(elements: PlacedElement[], floor: number)
   return null;
 }
 
+/** The finish painted on a region: the building exterior for -1, else the finish
+ * on any wall face bordering that room (what the thickness edges facing it wear). */
+export function regionFinish(elements: PlacedElement[], floor: number, region: number): { textureId: string; color: string } | null {
+  if (region < 0) return buildingExteriorFinish(elements, floor);
+  const rooms = roomsFor(elements, floor);
+  for (const w of floorWalls(elements, floor)) {
+    const len = wallLen(w);
+    const n = Math.max(2, Math.ceil(len / SAMPLE_STEP_IN));
+    for (let i = 0; i <= n; i++) {
+      const t = (len * i) / n;
+      if (faceRegionAt(w, true, t, rooms) === region) {
+        const f = spanFinishAt(w.faceNegSpans, w.faceNeg, t); // +normal side is faceNeg*
+        if (f) return f;
+      }
+      if (faceRegionAt(w, false, t, rooms) === region) {
+        const f = spanFinishAt(w.facePosSpans, w.facePos, t); // -normal side is facePos*
+        if (f) return f;
+      }
+    }
+  }
+  return null;
+}
+
+/** The finish a vertical thickness edge at `p` should wear: whatever region sits
+ * just off it — the building exterior outside, or that room's interior finish. */
+export function finishFacingPoint(elements: PlacedElement[], floor: number, p: Vec2): { textureId: string; color: string } | null {
+  const rooms = roomsFor(elements, floor);
+  return regionFinish(elements, floor, regionAt(rooms, p));
+}
+
 /** For a wall with no exterior face: 'partition' when the SAME room sits on both
  * sides (a free-standing divider inside one room — its thickness edges are all
  * interior surface), 'divider' when it separates two DIFFERENT rooms (its
