@@ -132,6 +132,21 @@ export function placeElementsBatch(els: Omit<PlacedElement, 'id'>[]): PlacedElem
   return placed;
 }
 
+/** Place an element, first removing existing ones the predicate flags as
+ * superseded (a new floor replaces the old one over the same area) — ONE undo. */
+export function placeReplacing(
+  el: Omit<PlacedElement, 'id'>,
+  supersedes: (existing: PlacedElement) => boolean,
+): PlacedElement {
+  history.push(state.elements);
+  const removed = state.elements.filter(supersedes).map((e) => e.id);
+  const placed = { ...el, id: uid() } as PlacedElement;
+  state.elements = [...state.elements.filter((e) => !removed.includes(e.id)), placed];
+  pruneSelection();
+  emit({ kind: 'items', changedIds: [...removed, placed.id] });
+  return placed;
+}
+
 /** Openings that no longer fit a changed wall are dropped in the SAME undo step. */
 export function updateElement(id: string, patch: Partial<PlacedElement>): void {
   const cur = state.elements.find((e) => e.id === id);

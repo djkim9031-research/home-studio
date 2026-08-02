@@ -1,7 +1,8 @@
 import { DEFAULT_DOOR, DEFAULT_STAIR, DEFAULT_WALL_H, DEFAULT_WALL_T, DEFAULT_WINDOW, SNAP } from '../constants';
 import { formatFeetInchesFull } from '../core/format';
-import { fillRegion } from '../core/regionFill';
-import { clampOpeningCenter, openingFits, projectOnWall, wallLen } from '../core/validity';
+import { pointInPolygon } from '../core/geometry';
+import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
+import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
 import type { FloorIndex, PlacedElement, Vec2, Wall } from '../types';
 
@@ -22,6 +23,8 @@ export interface ToolContext {
   pickWall(ev: PointerEvent): { wallId: string; point: Vec2; distance: number } | null;
   /** camera distance to the active floor plane under the cursor */
   floorHitDistance(ev: PointerEvent): number | null;
+  /** camera position in plan inches */
+  cameraPlanePos(): Vec2;
   /** notify that the armed tool finished/cancelled (palette un-highlights) */
   onDisarm(): void;
 }
@@ -465,13 +468,22 @@ export class FloorFillTool implements Tool {
       );
       return;
     }
-    store.placeElement({
-      kind: 'slab',
-      floor: s.activeFloor,
-      polygon: res.polygon,
-      textureId: this.arm.textureId,
-      color: this.arm.color,
-    } as Omit<PlacedElement, 'id'>);
+    // a new floor over an already-floored area replaces the old slab
+    const centroid = polyCentroid(res.polygon);
+    const replaced = store.placeReplacing(
+      {
+        kind: 'slab',
+        floor: s.activeFloor,
+        polygon: res.polygon,
+        textureId: this.arm.textureId,
+        color: this.arm.color,
+      } as Omit<PlacedElement, 'id'>,
+      (e) =>
+        e.kind === 'slab' &&
+        e.floor === s.activeFloor &&
+        (pointInPolygon(centroid, e.polygon) || pointInPolygon(polyCentroid(e.polygon), res.polygon)),
+    );
+    void replaced;
     this.ctx.toast('Floor placed.');
   }
 
@@ -499,6 +511,16 @@ function segPointDist(px: number, pz: number, a: Vec2, b: Vec2): number {
   const ab2 = abx * abx + abz * abz || 1;
   const t = Math.max(0, Math.min(1, ((px - a.x) * abx + (pz - a.z) * abz) / ab2));
   return Math.hypot(px - (a.x + abx * t), pz - (a.z + abz * t));
+}
+
+function polyCentroid(poly: Vec2[]): Vec2 {
+  let x = 0;
+  let z = 0;
+  for (const p of poly) {
+    x += p.x;
+    z += p.z;
+  }
+  return { x: x / poly.length, z: z / poly.length };
 }
 
 /** Walls whose run hugs the region polygon's boundary. */
@@ -573,19 +595,54 @@ export class WallpaperTool implements Tool {
     if (!down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
     const s = store.getState();
     const walls = wallsOn(s.activeFloor);
+    const nPosOf = (w: Wall): Vec2 => {
+      const d = wallDir(w);
+      return { x: -d.z, z: d.x };
+    };
+
     let targets: Wall[] = [];
-    // clicking a wall SURFACE (closer than the floor under the cursor) paints
-    // its whole connected run; clicking INSIDE a room papers that room's walls
+    let regionPolygon: Vec2[] | null = null;
+    // Clicking a wall face paints THE SIDE YOU CLICKED: if that side faces a
+    // room, the whole room papers; if it faces outdoors, the wall's whole
+    // connected run paints its outward faces. Clicking open floor inside a
+    // room papers that room.
     const hit = this.ctx.pickWall(ev);
     const floorDist = this.ctx.floorHitDistance(ev);
+    let clickedRegionSeed: Vec2 | null = floor;
+    let exteriorRun = false;
     if (hit && (floorDist === null || hit.distance < floorDist - 0.02)) {
-      targets = connectedWalls(walls, hit.wallId);
+      const w = walls.find((x) => x.id === hit.wallId);
+      if (!w) return;
+      const n = nPosOf(w);
+      const proj = projectOnWall(w, hit.point);
+      const at = wallPointAt(w, Math.max(0, Math.min(wallLen(w), proj.t)));
+      // the visible face is always on the CAMERA's side of the wall plane
+      // (hit-point offsets mislead on top-cap hits)
+      const cam = this.ctx.cameraPlanePos();
+      const sideSign: 1 | -1 = (cam.x - at.x) * n.x + (cam.z - at.z) * n.z >= 0 ? 1 : -1;
+      // a point just off the clicked face
+      clickedRegionSeed = {
+        x: at.x + n.x * (w.thickIn / 2 + 5) * sideSign,
+        z: at.z + n.z * (w.thickIn / 2 + 5) * sideSign,
+      };
+      const region = fillRegion(s.elements, s.activeFloor, clickedRegionSeed);
+      if (region.ok) {
+        // the clicked side faces a room — paper that room
+        targets = wallsBoundingRegion(walls, region.polygon);
+        regionPolygon = region.polygon;
+      } else {
+        // exterior face — paint the whole connected run's outward faces
+        targets = connectedWalls(walls, hit.wallId);
+        exteriorRun = true;
+      }
     } else {
       const region = floor ? fillRegion(s.elements, s.activeFloor, floor) : ({ ok: false } as const);
       if (region.ok) {
         targets = wallsBoundingRegion(walls, region.polygon);
+        regionPolygon = region.polygon;
       } else if (hit) {
         targets = connectedWalls(walls, hit.wallId);
+        exteriorRun = true;
       } else {
         this.ctx.toast(
           walls.length
@@ -595,14 +652,69 @@ export class WallpaperTool implements Tool {
         return;
       }
     }
+    void exteriorRun;
+    void clickedRegionSeed;
     if (!targets.length) {
       this.ctx.toast('No walls there to paint.');
       return;
     }
-    const originals = structuredClone(targets) as PlacedElement[];
-    store.updateElementsLive(targets.map((w) => ({ id: w.id, patch: { textureId: this.arm.textureId, color: this.arm.color } })));
+
+    // per-wall SIDE: the box's +z face maps to the plan normal (-dz, dx). A
+    // face is "toward" a point when that point lies on the +normal side.
+    const face = { textureId: this.arm.textureId, color: this.arm.color };
+    const facingPos = (w: Wall, toward: Vec2): boolean => {
+      const d = wallDir(w);
+      const n = { x: -d.z, z: d.x };
+      const mid = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 };
+      return (toward.x - mid.x) * n.x + (toward.z - mid.z) * n.z >= 0;
+    };
+    const patchFor = (towardPos: boolean): Partial<PlacedElement> => (towardPos ? { facePos: face } : { faceNeg: face });
+    const updates: { id: string; patch: Partial<PlacedElement> }[] = [];
+
+    if (regionPolygon) {
+      // interior papering: paint each wall's face toward the room centroid
+      const c = polyCentroid(regionPolygon);
+      for (const w of targets) updates.push({ id: w.id, patch: patchFor(facingPos(w, c)) });
+    } else {
+      // exterior run: paint the OUTWARD face — away from whatever room the
+      // wall borders; a wall between two rooms (no exterior side) is skipped
+      const regions = detectEnclosedRegions(s.elements, s.activeFloor);
+      const centroids = regions.map(polyCentroid);
+      let bx = 0;
+      let bz = 0;
+      for (const w of targets) {
+        bx += (w.a.x + w.b.x) / 2;
+        bz += (w.a.z + w.b.z) / 2;
+      }
+      bx /= targets.length;
+      bz /= targets.length;
+      const buildCentroid = { x: bx, z: bz };
+      for (const w of targets) {
+        const mid = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 };
+        // nearest room this wall borders (its interior side)
+        let interior: Vec2 | null = null;
+        let bestD = Infinity;
+        for (const c of centroids) {
+          const dd = Math.hypot(c.x - mid.x, c.z - mid.z);
+          if (dd < bestD) {
+            bestD = dd;
+            interior = c;
+          }
+        }
+        const inward = interior ?? buildCentroid;
+        // exterior = the side NOT toward the interior
+        updates.push({ id: w.id, patch: patchFor(!facingPos(w, inward)) });
+      }
+    }
+    if (!updates.length) {
+      this.ctx.toast('Those walls sit between rooms — paper them from inside a room.');
+      return;
+    }
+    const ids = new Set(updates.map((u) => u.id));
+    const originals = structuredClone(targets.filter((w) => ids.has(w.id))) as PlacedElement[];
+    store.updateElementsLive(updates);
     store.commitLiveEdit(originals);
-    this.ctx.toast(`Painted ${targets.length} wall${targets.length > 1 ? 's' : ''}.`);
+    this.ctx.toast(`Painted ${updates.length} wall face${updates.length > 1 ? 's' : ''}.`);
   }
 
   onHover(): void {}
@@ -643,6 +755,19 @@ export class RoomTool implements Tool {
           ? 'Draw some walls first — rooms live inside walls.'
           : "That area isn't enclosed by walls yet.",
       );
+      return;
+    }
+    // one label per enclosed area — refuse if this area is already named
+    const centroid = polyCentroid(res.polygon);
+    const existing = s.elements.find(
+      (e) =>
+        e.kind === 'room' &&
+        e.floor === s.activeFloor &&
+        (pointInPolygon(centroid, e.polygon) || pointInPolygon(polyCentroid(e.polygon), res.polygon)),
+    );
+    if (existing && existing.kind === 'room') {
+      this.ctx.toast(`Already labeled “${existing.name}” — rename it from the panel on the right.`);
+      store.select(existing.id);
       return;
     }
     const count = s.elements.filter((e) => e.kind === 'room').length;

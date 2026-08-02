@@ -3,7 +3,7 @@ import { wallLen } from './validity';
 
 /** Grid resolution for the flood fill, inches per cell. */
 const CELL = 3;
-const SIMPLIFY_TOL = 2; // inches
+const SIMPLIFY_TOL = 2.8; // inches — over half a cell-diagonal so stair-steps flatten
 /** virtual divider band half-width (open wall ends → dividing line) */
 const VIRT_R = CELL * 0.9;
 /** how far an open wall end may project its dividing line */
@@ -201,11 +201,29 @@ function traceMask(mask: Uint8Array, g: Grid): Vec2[] | null {
   return simplified.length >= 3 ? simplified : null;
 }
 
-/** Outward offset so region polygons reach the wall CENTERLINE and tuck
- * under the walls with no visible gap. */
-function centerlineOffset(walls: Wall[]): number {
-  const minThick = Math.min(...walls.map((w) => w.thickIn));
-  return minThick / 2 + CELL * 0.95;
+/** Grow the region INTO the adjacent blocked band (walls + dividers) so the
+ * traced outline reaches the wall centerline and adjoining fills meet across
+ * a divider. Dilation can only claim already-blocked cells, so it can never
+ * escape the enclosure — unconditionally stable, unlike polygon offsetting. */
+function dilateIntoBlocked(mask: Uint8Array, blocked: Uint8Array, W: number, H: number, iterations: number): void {
+  for (let it = 0; it < iterations; it++) {
+    const grown: number[] = [];
+    for (let gz = 0; gz < H; gz++) {
+      for (let gx = 0; gx < W; gx++) {
+        const i = gz * W + gx;
+        if (mask[i] || !blocked[i]) continue;
+        if (
+          (gx + 1 < W && mask[i + 1]) ||
+          (gx > 0 && mask[i - 1]) ||
+          (gz + 1 < H && mask[i + W]) ||
+          (gz > 0 && mask[i - W])
+        ) {
+          grown.push(i);
+        }
+      }
+    }
+    for (const i of grown) mask[i] = 1;
+  }
 }
 
 /**
@@ -253,12 +271,14 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
   }
   if (escaped) return { ok: false, reason: 'open' };
 
+  // reach under the walls: claim the adjacent blocked band up to ~centerline
+  dilateIntoBlocked(filled, blocked, W, H, 2);
+
   const outline = traceMask(filled, g);
   if (!outline) return { ok: false, reason: 'tiny' };
 
-  // ground truth: the flood's own cell count. A traced/offset polygon whose
-  // area disagrees wildly (self-intersection, winding damage, offset blowup)
-  // must never reach the renderer — fall back to the raw outline, else refuse.
+  // ground truth: the polygon must agree with the flood's own cell area and
+  // contain the click — anything degenerate is refused, never rendered
   let cells = 0;
   for (let i = 0; i < filled.length; i++) cells += filled[i];
   const cellSqIn = cells * CELL * CELL;
@@ -273,15 +293,11 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
   };
   const sane = (poly: Vec2[]): boolean => {
     const a = shoelace(poly);
-    return a > cellSqIn * 0.55 && a < cellSqIn * 2.2 && pointInPoly(at, poly);
+    return a > cellSqIn * 0.55 && a < cellSqIn * 1.6 && pointInPoly(at, poly);
   };
-
-  // walls get the tuck-under offset; divider edges just reach their line
-  const offset = dedupe(offsetPolygonVar(outline, walls, centerlineOffset(walls), VIRT_R + CELL * 0.5));
-  if (sane(offset)) return { ok: true, polygon: offset };
-  const raw = dedupe(outline);
-  if (sane(raw)) return { ok: true, polygon: raw };
-  return { ok: false, reason: 'open' };
+  const polygon = dedupe(outline);
+  if (!sane(polygon)) return { ok: false, reason: 'open' };
+  return { ok: true, polygon };
 }
 
 function pointInPoly(p: Vec2, poly: Vec2[]): boolean {
@@ -307,146 +323,6 @@ function dedupe(poly: Vec2[]): Vec2[] {
     if (Math.hypot(f.x - l.x, f.z - l.z) <= 0.5) out.pop();
   }
   return out;
-}
-
-/** Per-edge outward offset: `dWall` along real walls, `dVirt` along divider
- * lines; vertices land on the intersection of the two offset edges. */
-function offsetPolygonVar(poly: Vec2[], walls: Wall[], dWall: number, dVirt: number): Vec2[] {
-  const n = poly.length;
-  let area2 = 0;
-  for (let i = 0; i < n; i++) {
-    const p = poly[i];
-    const q = poly[(i + 1) % n];
-    area2 += p.x * q.z - q.x * p.z;
-  }
-  const sign = area2 > 0 ? 1 : -1;
-
-  const edgeInfo = poly.map((p, i) => {
-    const q = poly[(i + 1) % n];
-    const ex = q.x - p.x;
-    const ez = q.z - p.z;
-    const len = Math.hypot(ex, ez) || 1;
-    const nx = (sign * ez) / len;
-    const nz = (-sign * ex) / len;
-    const mx = (p.x + q.x) / 2;
-    const mz = (p.z + q.z) / 2;
-    const nearWall = walls.some((w) => distPointSeg(mx, mz, w.a, w.b) <= w.thickIn / 2 + CELL * 2.2);
-    const d = nearWall ? dWall : dVirt;
-    return { ex: ex / len, ez: ez / len, nx, nz, d };
-  });
-
-  const out: Vec2[] = [];
-  const maxD = Math.max(dWall, dVirt);
-  for (let i = 0; i < n; i++) {
-    const e1 = edgeInfo[(i - 1 + n) % n];
-    const e2 = edgeInfo[i];
-    const cur = poly[i];
-    // lines: (cur + n1·d1) + t·e1  and  (cur + n2·d2) + s·e2
-    const p1x = cur.x + e1.nx * e1.d;
-    const p1z = cur.z + e1.nz * e1.d;
-    const p2x = cur.x + e2.nx * e2.d;
-    const p2z = cur.z + e2.nz * e2.d;
-    const cross = e1.ex * e2.ez - e1.ez * e2.ex;
-    let vx: number;
-    let vz: number;
-    if (Math.abs(cross) < 1e-4) {
-      // near-parallel edges — average the two offsets
-      vx = cur.x + (e1.nx * e1.d + e2.nx * e2.d) / 2;
-      vz = cur.z + (e1.nz * e1.d + e2.nz * e2.d) / 2;
-    } else {
-      const t = ((p2x - p1x) * e2.ez - (p2z - p1z) * e2.ex) / cross;
-      vx = p1x + e1.ex * t;
-      vz = p1z + e1.ez * t;
-      // miter cap for sharp corners
-      const dx = vx - cur.x;
-      const dz = vz - cur.z;
-      const m = Math.hypot(dx, dz);
-      const cap = maxD * 3;
-      if (m > cap) {
-        vx = cur.x + (dx / m) * cap;
-        vz = cur.z + (dz / m) * cap;
-      }
-    }
-    out.push({ x: vx, z: vz });
-  }
-  return out;
-}
-
-/**
- * Every fully-enclosed region on a floor (for automatic ceilings): flood the
- * OUTSIDE from the grid border; unblocked cells the outside never reaches are
- * interior regions. Returns one centerline-offset polygon per region.
- */
-export function detectEnclosedRegions(elements: PlacedElement[], floor: number): Vec2[][] {
-  const walls = floorWalls(elements, floor);
-  if (walls.length < 3) return [];
-  const g = buildOccupancy(walls);
-  if (!g) return [];
-  const { blocked, W, H } = g;
-
-  const visited = new Uint8Array(W * H);
-  const queue: number[] = [];
-  const pushIf = (gx: number, gz: number): void => {
-    if (gx < 0 || gz < 0 || gx >= W || gz >= H) return;
-    const i = gz * W + gx;
-    if (!visited[i] && !blocked[i]) {
-      visited[i] = 1;
-      queue.push(i);
-    }
-  };
-  for (let gx = 0; gx < W; gx++) {
-    pushIf(gx, 0);
-    pushIf(gx, H - 1);
-  }
-  for (let gz = 0; gz < H; gz++) {
-    pushIf(0, gz);
-    pushIf(W - 1, gz);
-  }
-  while (queue.length) {
-    const idx = queue.pop()!;
-    const gx = idx % W;
-    const gz = (idx - gx) / W;
-    pushIf(gx + 1, gz);
-    pushIf(gx - 1, gz);
-    pushIf(gx, gz + 1);
-    pushIf(gx, gz - 1);
-  }
-
-  const off = centerlineOffset(walls);
-  const regions: Vec2[][] = [];
-  const MIN_CELLS = 32; // ~2 sqft — ignore slivers between double walls
-  for (let start = 0; start < W * H; start++) {
-    if (visited[start] || blocked[start]) continue;
-    // flood this interior component
-    const comp: number[] = [start];
-    const mask = new Uint8Array(W * H);
-    mask[start] = 1;
-    let count = 0;
-    while (comp.length) {
-      const idx = comp.pop()!;
-      count += 1;
-      visited[idx] = 1;
-      const gx = idx % W;
-      const gz = (idx - gx) / W;
-      for (const [nx, nz] of [
-        [gx + 1, gz],
-        [gx - 1, gz],
-        [gx, gz + 1],
-        [gx, gz - 1],
-      ]) {
-        if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
-        const ni = nz * W + nx;
-        if (!mask[ni] && !blocked[ni] && !visited[ni]) {
-          mask[ni] = 1;
-          comp.push(ni);
-        }
-      }
-    }
-    if (count < MIN_CELLS) continue;
-    const outline = traceMask(mask, g);
-    if (outline) regions.push(offsetPolygon(outline, off));
-  }
-  return regions;
 }
 
 /** Douglas-Peucker. */
@@ -489,45 +365,80 @@ function simplify(pts: Vec2[], tol: number): Vec2[] {
   return out;
 }
 
-/** Push every vertex outward along its angle bisector by `d` inches. */
-function offsetPolygon(poly: Vec2[], d: number): Vec2[] {
-  const n = poly.length;
-  // orientation: positive shoelace = CCW in (x, z) math axes
-  let area2 = 0;
-  for (let i = 0; i < n; i++) {
-    const p = poly[i];
-    const q = poly[(i + 1) % n];
-    area2 += p.x * q.z - q.x * p.z;
-  }
-  const sign = area2 > 0 ? 1 : -1;
-  const outward = (a: Vec2, b: Vec2): Vec2 => {
-    const ex = b.x - a.x;
-    const ez = b.z - a.z;
-    const len = Math.hypot(ex, ez) || 1;
-    return { x: (sign * ez) / len, z: (-sign * ex) / len };
-  };
-  const out: Vec2[] = [];
-  for (let i = 0; i < n; i++) {
-    const prev = poly[(i - 1 + n) % n];
-    const cur = poly[i];
-    const next = poly[(i + 1) % n];
-    const n1 = outward(prev, cur);
-    const n2 = outward(cur, next);
-    let bx = n1.x + n2.x;
-    let bz = n1.z + n2.z;
-    const bl = Math.hypot(bx, bz);
-    if (bl < 1e-6) {
-      // 180° spike — offset along one normal
-      bx = n1.x;
-      bz = n1.z;
-    } else {
-      bx /= bl;
-      bz /= bl;
+
+/**
+ * Every fully-enclosed region on a floor (for automatic ceilings): flood the
+ * OUTSIDE from the grid border; unblocked cells the outside never reaches are
+ * interior regions. Regions grow into the wall band like fills do.
+ */
+export function detectEnclosedRegions(elements: PlacedElement[], floor: number): Vec2[][] {
+  const walls = floorWalls(elements, floor);
+  if (walls.length < 3) return [];
+  const g = buildOccupancy(walls);
+  if (!g) return [];
+  const { blocked, W, H } = g;
+
+  const visited = new Uint8Array(W * H);
+  const queue: number[] = [];
+  const pushIf = (gx: number, gz: number): void => {
+    if (gx < 0 || gz < 0 || gx >= W || gz >= H) return;
+    const i = gz * W + gx;
+    if (!visited[i] && !blocked[i]) {
+      visited[i] = 1;
+      queue.push(i);
     }
-    // miter length so straight edges stay parallel; capped for sharp corners
-    const cosHalf = Math.max(0.34, Math.sqrt(Math.max(0.05, (1 + (n1.x * n2.x + n1.z * n2.z)) / 2)));
-    const m = Math.min(d / cosHalf, d * 3);
-    out.push({ x: cur.x + bx * m, z: cur.z + bz * m });
+  };
+  for (let gx = 0; gx < W; gx++) {
+    pushIf(gx, 0);
+    pushIf(gx, H - 1);
   }
-  return out;
+  for (let gz = 0; gz < H; gz++) {
+    pushIf(0, gz);
+    pushIf(W - 1, gz);
+  }
+  while (queue.length) {
+    const idx = queue.pop()!;
+    const gx = idx % W;
+    const gz = (idx - gx) / W;
+    pushIf(gx + 1, gz);
+    pushIf(gx - 1, gz);
+    pushIf(gx, gz + 1);
+    pushIf(gx, gz - 1);
+  }
+
+  const regions: Vec2[][] = [];
+  const MIN_CELLS = 32; // ~2 sqft — ignore slivers between double walls
+  for (let start = 0; start < W * H; start++) {
+    if (visited[start] || blocked[start]) continue;
+    // flood this interior component
+    const comp: number[] = [start];
+    const mask = new Uint8Array(W * H);
+    mask[start] = 1;
+    let count = 0;
+    while (comp.length) {
+      const idx = comp.pop()!;
+      count += 1;
+      visited[idx] = 1;
+      const gx = idx % W;
+      const gz = (idx - gx) / W;
+      for (const [nx, nz] of [
+        [gx + 1, gz],
+        [gx - 1, gz],
+        [gx, gz + 1],
+        [gx, gz - 1],
+      ]) {
+        if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
+        const ni = nz * W + nx;
+        if (!mask[ni] && !blocked[ni] && !visited[ni]) {
+          mask[ni] = 1;
+          comp.push(ni);
+        }
+      }
+    }
+    if (count < MIN_CELLS) continue;
+    dilateIntoBlocked(mask, blocked, W, H, 2);
+    const outline = traceMask(mask, g);
+    if (outline) regions.push(dedupe(outline));
+  }
+  return regions;
 }

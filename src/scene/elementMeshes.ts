@@ -191,6 +191,9 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   const group = new THREE.Group();
   const baseY = floorBaseIn(elements, wall.floor);
   const mat = finishMaterial(wall.textureId, wall.color);
+  // per-side wallpaper: a box's +z face maps to the plan normal (-dz, dx)
+  const matPos = wall.facePos ? finishMaterial(wall.facePos.textureId, wall.facePos.color) : mat;
+  const matNeg = wall.faceNeg ? finishMaterial(wall.faceNeg.textureId, wall.faceNeg.color) : mat;
   const rep = finishRepeatPerIn(wall.textureId);
   const len = wallLen(wall);
   const dir = wallDir(wall);
@@ -201,7 +204,9 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     if (L < 0.5 || y1 - y0 < 0.5) return;
     const geo = new THREE.BoxGeometry(i2m(L), i2m(y1 - y0), i2m(wall.thickIn));
     scaleBoxUV(geo, L * rep, (y1 - y0) * rep);
-    const m = new THREE.Mesh(geo, mat);
+    // box material order: +x, -x, +y, -y, +z, -z. The mesh's yaw maps its
+    // local -z onto the plan +normal (-dz, dx), so facePos → the -z face.
+    const m = new THREE.Mesh(geo, [mat, mat, mat, mat, matNeg, matPos]);
     const mid = wallPointAt(wall, (t0 + t1) / 2);
     m.position.set(i2m(mid.x), i2m(baseY + (y0 + y1) / 2), i2m(mid.z));
     m.rotation.y = yaw;
@@ -227,7 +232,10 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   if (cursor < len) seg(cursor, len, 0, wall.heightIn);
   void dir;
   void wallUp;
-  return { group, clipMats: [mat] };
+  const clipMats = [mat];
+  if (matPos !== mat) clipMats.push(matPos);
+  if (matNeg !== mat) clipMats.push(matNeg);
+  return { group, clipMats };
 }
 
 function buildOpening(op: Opening, elements: PlacedElement[]): { group: THREE.Group; clipMats: THREE.Material[] } {

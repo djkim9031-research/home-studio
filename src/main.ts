@@ -75,6 +75,7 @@ const toolCtx: ToolContext = {
   toast,
   pickWall: (ev) => pointer.pickWall(ev),
   floorHitDistance: (ev) => pointer.floorHitDistance(ev),
+  cameraPlanePos: () => ({ x: rig.camera.position.x / i2m(1), z: rig.camera.position.z / i2m(1) }),
   onDisarm: () => disarm(),
 };
 
@@ -444,27 +445,45 @@ if (params.get('qa') === 'divider') {
   }, 2200);
 }
 if (params.get('qa') === 'wallpaper') {
-  // room paper (click inside) then exterior paint (click a wall from outside)
+  // room paper (inner faces) then exterior paint (outer faces of the run)
   setTimeout(() => {
     const click = (x: number, y: number): void => {
       viewport.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
       viewport.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
     };
     pointer.setTool(new WallpaperTool({ textureId: 'stripes', color: '#d9d2e6' }, toolCtx));
-    click(850, 500); // inside the room → all 4 walls papered
-    // rebuilt meshes need a render tick before they raycast — space the
-    // second click by one frame
+    click(850, 500); // inside the room
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        pointer.setTool(new WallpaperTool({ textureId: 'brick', color: '#c76f4a' }, toolCtx));
-        click(700, 560); // on the exterior face of the south wall → connected run
+        if (!params.get('skipext')) {
+          pointer.setTool(new WallpaperTool({ textureId: 'brick', color: '#c76f4a' }, toolCtx));
+          click(690, 545);
+        }
         const walls = store.getState().elements.filter((e) => e.kind === 'wall');
-        const banner = document.createElement('div');
-        banner.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99;background:#222;color:#fff;padding:6px 10px;font:13px monospace;';
-        banner.textContent = `QA finishes=[${walls.map((w) => (w.kind === 'wall' ? w.textureId : '')).join(',')}]`;
-        document.body.appendChild(banner);
+        const t = `QA faces=[${walls
+          .map((w) => (w.kind === 'wall' ? `${w.facePos?.textureId ?? '-'}|${w.faceNeg?.textureId ?? '-'}` : ''))
+          .join(' ')}]`;
+        setInterval(() => (document.title = t), 400);
       }),
     );
+  }, 2200);
+}
+if (params.get('qa') === 'refill') {
+  // fill the room, then re-fill with a different finish: the old slab must be
+  // replaced, not stacked
+  setTimeout(() => {
+    const click = (x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+      viewport.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+    };
+    store.deleteElements(store.getState().elements.filter((e) => e.kind === 'slab').map((e) => e.id));
+    pointer.setTool(new FloorFillTool({ textureId: 'tile', color: '#cc4444' }, toolCtx));
+    click(850, 500);
+    pointer.setTool(new FloorFillTool({ textureId: 'carpet', color: '#4466bb' }, toolCtx));
+    click(850, 500);
+    const slabs = store.getState().elements.filter((e) => e.kind === 'slab');
+    const t = `QAREFILL slabs=${slabs.length} finishes=[${slabs.map((e) => (e.kind === 'slab' ? e.textureId : '')).join(',')}]`;
+    setInterval(() => (document.title = t), 400);
   }, 2200);
 }
 if (params.get('qa') === 'fillvis') {

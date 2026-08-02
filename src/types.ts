@@ -22,13 +22,21 @@ interface ElementBase {
   color: string;
 }
 
+export interface WallFace {
+  textureId: string;
+  color: string;
+}
+
 export interface Wall extends ElementBase {
   kind: 'wall';
   a: Vec2; // endpoints, inches
   b: Vec2;
   heightIn: number;
   thickIn: number;
-  textureId: string; // wall-texture registry id
+  textureId: string; // base finish (edges + any face without its own)
+  /** wallpaper per side: `facePos` faces the (-dz, dx) normal, `faceNeg` the other */
+  facePos?: WallFace;
+  faceNeg?: WallFace;
 }
 
 /** A door or window carried by a wall; depth is implicitly the wall's thickness. */

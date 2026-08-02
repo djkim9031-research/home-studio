@@ -24,11 +24,12 @@ real sun that casts real shadows for any date and time you pick.
   - **Stairs**: width, run, one flight or a U-turn, open or closed risers,
     tread finish and color. They connect the floor you're on to the one above.
   - **Flooring**: once walls enclose an area, one click floors the whole room —
-    oak, tile, carpet, or concrete, tinted any color.
-  - **Wallpaper**: click inside a room to paper all of its walls at once, or
-    click any wall face to paint every wall it connects to — the whole
-    exterior shell recolors in one go. Paint, plaster, brick, wood panel,
-    stripes, beadboard, or damask, tinted any color with quick swatches.
+    oak, tile, carpet, or concrete, tinted any color. Filling an already-floored
+    area replaces the old floor.
+  - **Wallpaper**: paint one side of a wall at a time — click inside a room to
+    paper its interior faces, or click a wall's outer face to paint the whole
+    exterior shell. Interior and exterior stay independent. Paint, plaster,
+    brick, wood panel, stripes, beadboard, or damask, tinted with quick swatches.
   - **Rooms**: click inside an enclosed area to name it; the label floats in
     the room with its square footage and can be renamed any time.
   - **Ceilings**: enclosed areas get an automatic flat ceiling that blocks the

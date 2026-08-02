@@ -70,6 +70,17 @@ export class PointerController {
     return { x: hit.x / i2m(1), z: hit.z / i2m(1) };
   }
 
+  /** Raycasters ignore clipping planes — drop hits on the clipped-away part
+   * of a cutaway-lowered wall so picks match what's on screen. */
+  private hitClipped(h: THREE.Intersection): boolean {
+    const mesh = h.object as THREE.Mesh;
+    if (!mesh.isMesh) return false;
+    const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.Material;
+    const planes = mat?.clippingPlanes as THREE.Plane[] | null;
+    if (!planes || !planes.length) return false;
+    return planes.some((p) => p.distanceToPoint(h.point) < 0);
+  }
+
   /** Raycast placed-element meshes; nearest element id. */
   pickElement(ev: PointerEvent): string | null {
     const rect = this.canvas.getBoundingClientRect();
@@ -81,6 +92,7 @@ export class PointerController {
     const groups = [...this.meshes.allEntries().values()].map((e) => e.group);
     const hits = this.ray.intersectObjects(groups, true);
     for (const h of hits) {
+      if (this.hitClipped(h)) continue;
       let o: THREE.Object3D | null = h.object;
       while (o) {
         if (o.userData.itemId) return o.userData.itemId as string;
@@ -122,6 +134,7 @@ export class PointerController {
     }
     const hits = this.ray.intersectObjects(wallGroups, true);
     for (const h of hits) {
+      if (this.hitClipped(h)) continue;
       let o: THREE.Object3D | null = h.object;
       while (o) {
         if (o.userData.itemId) {

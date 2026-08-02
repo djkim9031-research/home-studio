@@ -43,7 +43,12 @@ export function isValidElement(v: unknown): v is PlacedElement {
   switch (o.kind) {
     case 'wall': {
       const w = o as Wall;
-      return isVec2(w.a) && isVec2(w.b) && num(w.heightIn) && num(w.thickIn) && str(w.textureId);
+      const faceOk = (f: unknown): boolean =>
+        f === undefined || (!!f && str((f as { textureId: unknown }).textureId) && str((f as { color: unknown }).color));
+      return (
+        isVec2(w.a) && isVec2(w.b) && num(w.heightIn) && num(w.thickIn) && str(w.textureId) &&
+        faceOk(w.facePos) && faceOk(w.faceNeg)
+      );
     }
     case 'door':
     case 'window': {
