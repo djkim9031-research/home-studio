@@ -255,8 +255,58 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
 
   const outline = traceMask(filled, g);
   if (!outline) return { ok: false, reason: 'tiny' };
+
+  // ground truth: the flood's own cell count. A traced/offset polygon whose
+  // area disagrees wildly (self-intersection, winding damage, offset blowup)
+  // must never reach the renderer — fall back to the raw outline, else refuse.
+  let cells = 0;
+  for (let i = 0; i < filled.length; i++) cells += filled[i];
+  const cellSqIn = cells * CELL * CELL;
+  const shoelace = (poly: Vec2[]): number => {
+    let a = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i];
+      const q = poly[(i + 1) % poly.length];
+      a += p.x * q.z - q.x * p.z;
+    }
+    return Math.abs(a) / 2;
+  };
+  const sane = (poly: Vec2[]): boolean => {
+    const a = shoelace(poly);
+    return a > cellSqIn * 0.55 && a < cellSqIn * 2.2 && pointInPoly(at, poly);
+  };
+
   // walls get the tuck-under offset; divider edges just reach their line
-  return { ok: true, polygon: offsetPolygonVar(outline, walls, centerlineOffset(walls), VIRT_R + CELL * 0.5) };
+  const offset = dedupe(offsetPolygonVar(outline, walls, centerlineOffset(walls), VIRT_R + CELL * 0.5));
+  if (sane(offset)) return { ok: true, polygon: offset };
+  const raw = dedupe(outline);
+  if (sane(raw)) return { ok: true, polygon: raw };
+  return { ok: false, reason: 'open' };
+}
+
+function pointInPoly(p: Vec2, poly: Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.z > p.z !== b.z > p.z && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Drop consecutive near-duplicate vertices (degenerate triangulation fuel). */
+function dedupe(poly: Vec2[]): Vec2[] {
+  const out: Vec2[] = [];
+  for (const p of poly) {
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(p.x - last.x, p.z - last.z) > 0.5) out.push(p);
+  }
+  if (out.length > 1) {
+    const f = out[0];
+    const l = out[out.length - 1];
+    if (Math.hypot(f.x - l.x, f.z - l.z) <= 0.5) out.pop();
+  }
+  return out;
 }
 
 /** Per-edge outward offset: `dWall` along real walls, `dVirt` along divider

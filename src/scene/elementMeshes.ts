@@ -124,6 +124,11 @@ function buildKey(e: PlacedElement, elements: PlacedElement[]): string {
     return base + '|' + (wall ? JSON.stringify(wall) : 'orphan');
   }
   if (e.kind === 'stair') return base + `|h${storyHeightIn(elements, e.floor)}`;
+  if (e.kind === 'slab') {
+    // stacking order feeds the anti-z-fight elevation
+    const order = elements.filter((x) => x.kind === 'slab' && x.floor === e.floor).findIndex((x) => x.id === e.id);
+    return base + `|o${order}`;
+  }
   return base;
 }
 
@@ -397,11 +402,10 @@ function buildSlab(slab: FloorSlab, elements: PlacedElement[]): { group: THREE.G
   mat.map.needsUpdate = true;
   mat.side = THREE.DoubleSide;
   const mesh = new THREE.Mesh(geo, mat);
-  // tiny per-slab elevation jitter: adjoining fills that share a dividing
-  // line overlap by an inch or two — keep them from z-fighting
-  let h = 0;
-  for (const c of slab.id) h = (h * 31 + c.charCodeAt(0)) % 7;
-  mesh.position.y = i2m(baseY + 0.3 + h * 0.05);
+  // strictly distinct per-slab elevations (placement order): overlapping
+  // fills — shared divider seams, refills over old floors — can never z-fight
+  const order = elements.filter((e) => e.kind === 'slab' && e.floor === slab.floor).findIndex((e) => e.id === slab.id);
+  mesh.position.y = i2m(baseY + 0.3 + Math.max(0, order) * 0.06);
   mesh.receiveShadow = true;
   group.add(mesh);
   return { group, clipMats: [] };
