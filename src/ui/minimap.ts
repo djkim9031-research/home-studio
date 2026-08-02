@@ -1,5 +1,4 @@
 import { formatFeetInches } from '../core/format';
-import { finishMaterial } from '../data/registry';
 import * as store from '../state/store';
 import { polygonSqft, type FloorIndex, type Wall } from '../types';
 
@@ -72,10 +71,7 @@ export function buildMinimap(root: HTMLElement, getFloor: () => FloorIndex): Min
     // floors (slabs) as tinted fills
     for (const e of on) {
       if (e.kind !== 'slab') continue;
-      const mat = finishMaterial(e.textureId, e.color);
-      g.fillStyle = `#${mat.color.getHexString()}`;
-      mat.map?.dispose();
-      mat.dispose();
+      g.fillStyle = /^#[0-9a-f]{6}$/i.test(e.color) ? e.color : '#cbb892';
       g.globalAlpha = 0.5;
       g.beginPath();
       e.polygon.forEach((p, i) => (i === 0 ? g.moveTo(px(p.x), pz(p.z)) : g.lineTo(px(p.x), pz(p.z))));
