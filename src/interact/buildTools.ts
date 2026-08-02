@@ -379,8 +379,8 @@ export class WallTool implements Tool {
     const b = rb;
     const floorIdx = store.getState().activeFloor;
     // where a new run overlaps an existing wall, keep only its NON-overlapping
-    // stretches — the shared part is left to the existing wall (which keeps all
-    // its paint, wallpaper and openings), and the extending part is not lost
+    // stretches — the shared part is left to the existing wall (which keeps its
+    // paint and wallpaper), and the extending part is not lost
     const existing = wallsOn(floorIdx);
     const fresh = runs
       .flatMap((r) => runMinusExisting(r, existing, this.arm.thickIn).map((piece) => ({ piece, run: r })))
@@ -389,6 +389,22 @@ export class WallTool implements Tool {
       this.ctx.toast('That room shares its walls with existing ones.');
       if (this.arm.shape === 'line') this.lastB = b;
       return;
+    }
+    // but a merged stretch drops the structures (doors/windows) sitting on it
+    const droppedOpenings: string[] = [];
+    for (const r of runs) {
+      for (const w of existing) {
+        if (!collinearSpan(r.a, r.b, w, this.arm.thickIn)) continue;
+        const d = wallDir(w);
+        const wL = wallLen(w);
+        const ta = (r.a.x - w.a.x) * d.x + (r.a.z - w.a.z) * d.z;
+        const tb = (r.b.x - w.a.x) * d.x + (r.b.z - w.a.z) * d.z;
+        const lo = Math.max(0, Math.min(ta, tb));
+        const hi = Math.min(wL, Math.max(ta, tb));
+        for (const e of store.getState().elements) {
+          if ((e.kind === 'door' || e.kind === 'window') && e.wallId === w.id && e.centerIn >= lo - 0.5 && e.centerIn <= hi + 0.5) droppedOpenings.push(e.id);
+        }
+      }
     }
     // rectangle rooms may finish inside and outside faces separately: the
     // face toward the room center is the inside one
@@ -422,6 +438,7 @@ export class WallTool implements Tool {
         ...faceFor(run),
       })),
     );
+    if (droppedOpenings.length) store.deleteElements(droppedOpenings);
     // a new room can turn a wall's exterior face into an interior one; drop the
     // now-stale exterior paint on those stretches so it doesn't linger
     const clears = regroupClearPatches(before, store.getState().elements, floorIdx);

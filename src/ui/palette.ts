@@ -5,7 +5,7 @@ import { THUMBS } from './thumbnails';
 
 /** What the palette asks main.ts to arm. */
 export type ArmSpec =
-  | { tool: 'wall'; shape: 'line' | 'rect'; heightIn: number; thickIn: number; color: string; textureId: string; rectLenIn: number; rectWidIn: number; rectAnchor: 'tl' | 'tr' | 'bl' | 'br' | 'center'; rectInside: { textureId: string; color: string }; rectOutside: { textureId: string; color: string } }
+  | { tool: 'wall'; shape: 'line' | 'rect'; heightIn: number; thickIn: number; color: string; textureId: string; rectLenIn: number; rectWidIn: number; rectAnchor: 'tl' | 'tr' | 'bl' | 'br' | 'center' }
   | { tool: 'opening'; door: boolean; widthIn: number; heightIn: number; sillIn: number; styleId: string; color: string; mainEntrance?: boolean }
   | { tool: 'stair'; widthIn: number; runIn: number; flights: 1 | 2; styleId: string; textureId: string; color: string }
   | { tool: 'fill'; textureId: string; color: string }
@@ -29,7 +29,7 @@ const CATS: { key: string; label: string }[] = [
   { key: 'stairs', label: 'Stairs' },
   { key: 'flooring', label: 'Flooring' },
   { key: 'paint', label: 'Paint' },
-  { key: 'wallpaper', label: 'Wallpaper' },
+  { key: 'wallpaper', label: 'Accent' },
   { key: 'rooms', label: 'Rooms' },
 ];
 
@@ -126,38 +126,26 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
       { id: 'center', label: '✛ centered' },
     ]);
     const h = numInput('H"', DEFAULT_WALL_H, 24, 240);
-    const tex = selInput('finish', WALL_TEXTURES);
-    const col = colorInput('#f2eee6');
-    // rectangle rooms finish inside and outside separately
-    const inTex = selInput('inside', WALL_TEXTURES);
-    const inCol = colorInput('#e8dfd0');
-    const outTex = selInput('outside', WALL_TEXTURES);
-    const outCol = colorInput('#dfe8ee');
-    // L/W/anchor + inside/outside only apply to Rectangle; the single finish is
-    // for a Straight wall — show one set or the other, never both
-    const rectOnly = [len.el, wid.el, anchor.el, inTex.el, inCol.el, outTex.el, outCol.el];
-    const lineOnly = [tex.el, col.el];
+    // walls are drawn bare (dimensions only); finishing happens later in Paint
+    // L/W/anchor apply to Rectangle only
+    const rectOnly = [len.el, wid.el, anchor.el];
     const syncLW = (): void => {
       const on = shape.get() === 'rect';
       for (const el of rectOnly) el.style.display = on ? '' : 'none';
-      for (const el of lineOnly) el.style.display = on ? 'none' : '';
     };
     (shape.el.querySelector('select') as HTMLSelectElement).addEventListener('change', syncLW);
     syncLW();
     byCat.set('walls', [
-      card(THUMBS.wall, 'Wall — Straight: drag · Rectangle: set L×W + inside/outside finish, click to place', [shape.el, len.el, wid.el, anchor.el, h.el, tex.el, col.el, inTex.el, inCol.el, outTex.el, outCol.el], () => ({
+      card(THUMBS.wall, 'Wall — Straight: drag · Rectangle: set L×W, click to place. Finish walls later in Paint.', [shape.el, len.el, wid.el, anchor.el, h.el], () => ({
         tool: 'wall',
         shape: shape.get() as 'line' | 'rect',
         rectLenIn: len.get(),
         rectWidIn: wid.get(),
         rectAnchor: anchor.get() as 'tl' | 'tr' | 'bl' | 'br' | 'center',
-        rectInside: { textureId: inTex.get(), color: inCol.get() },
-        rectOutside: { textureId: outTex.get(), color: outCol.get() },
         heightIn: h.get(),
         thickIn: DEFAULT_WALL_T,
-        // a rectangle's base finish (wall top) tracks its outside finish
-        textureId: shape.get() === 'rect' ? outTex.get() : tex.get(),
-        color: shape.get() === 'rect' ? outCol.get() : col.get(),
+        textureId: 'paint',
+        color: '#f2eee6',
       })),
     ]);
   }
@@ -297,7 +285,7 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     const px = numInput('from edge x"', 12, 0, 480);
     const py = numInput('from floor y"', 24, 0, 240);
     byCat.set('wallpaper', [
-      card(THUMBS.wallpaper, 'Wallpaper — set the patch size and offset, click a wall', [tex.el, col.el, pw.el, ph.el, px.el, py.el, swatches], () => ({
+      card(THUMBS.wallpaper, 'Accent wallpaper — a patch of a given size, offset from the nearest wall edge; click a wall', [tex.el, col.el, pw.el, ph.el, px.el, py.el, swatches], () => ({
         tool: 'wallpaper',
         textureId: tex.get(),
         color: col.get(),
