@@ -11,7 +11,7 @@ import { moonState, sunPosition } from './scene/sun';
 import { i2m } from './constants';
 import * as store from './state/store';
 import { exportProject, getProject, listProjects, saveProject } from './state/projects';
-import { FloorFillTool, OpeningTool, RoomTool, SelectTool, StairTool, WallTool, type Tool, type ToolContext } from './interact/buildTools';
+import { FloorFillTool, OpeningTool, RoomTool, SelectTool, StairTool, WallpaperTool, WallTool, type Tool, type ToolContext } from './interact/buildTools';
 import { PointerController } from './interact/pointer';
 import { installKeyboard } from './interact/keyboard';
 import { buildLanding } from './ui/landing';
@@ -74,6 +74,7 @@ const pointer = new PointerController(viewport, host.canvas, rig, meshes);
 const toolCtx: ToolContext = {
   toast,
   pickWall: (ev) => pointer.pickWall(ev),
+  floorHitDistance: (ev) => pointer.floorHitDistance(ev),
   onDisarm: () => disarm(),
 };
 
@@ -101,6 +102,9 @@ function armFromSpec(spec: ArmSpec, card: HTMLElement): void {
       break;
     case 'fill':
       tool = new FloorFillTool(spec, toolCtx);
+      break;
+    case 'wallpaper':
+      tool = new WallpaperTool(spec, toolCtx);
       break;
     case 'room':
       tool = new RoomTool(toolCtx);
@@ -233,6 +237,7 @@ store.subscribe((s, ev) => {
     meshes.sync(s.elements);
     ceilings.sync(s.elements);
     meshes.setSelected(s.selectedIds);
+    cutaway.invalidate(); // rebuilt meshes carry fresh materials
     applyFloorVisibility();
     placedPanel.refresh();
     editPanel.refresh();
@@ -436,6 +441,30 @@ if (params.get('qa') === 'divider') {
     banner.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99;background:#222;color:#fff;padding:6px 10px;font:13px monospace;';
     banner.textContent = `QA slabs=${placedSlabs.length} floors=[${placedSlabs.map((s) => (s.kind === 'slab' ? s.textureId : '')).join(',')}]`;
     document.body.appendChild(banner);
+  }, 2200);
+}
+if (params.get('qa') === 'wallpaper') {
+  // room paper (click inside) then exterior paint (click a wall from outside)
+  setTimeout(() => {
+    const click = (x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+      viewport.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, pointerId: 4, button: 0, bubbles: true }));
+    };
+    pointer.setTool(new WallpaperTool({ textureId: 'stripes', color: '#d9d2e6' }, toolCtx));
+    click(850, 500); // inside the room → all 4 walls papered
+    // rebuilt meshes need a render tick before they raycast — space the
+    // second click by one frame
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        pointer.setTool(new WallpaperTool({ textureId: 'brick', color: '#c76f4a' }, toolCtx));
+        click(700, 560); // on the exterior face of the south wall → connected run
+        const walls = store.getState().elements.filter((e) => e.kind === 'wall');
+        const banner = document.createElement('div');
+        banner.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99;background:#222;color:#fff;padding:6px 10px;font:13px monospace;';
+        banner.textContent = `QA finishes=[${walls.map((w) => (w.kind === 'wall' ? w.textureId : '')).join(',')}]`;
+        document.body.appendChild(banner);
+      }),
+    );
   }, 2200);
 }
 if (params.get('qa') === 'fillvis') {

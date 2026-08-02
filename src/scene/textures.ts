@@ -103,6 +103,74 @@ export function woodPanelTexture(): THREE.CanvasTexture {
   });
 }
 
+/** two-tone vertical wallpaper stripes; one tile = 32" */
+export function stripesTexture(): THREE.CanvasTexture {
+  return canvasTexture(512, (g, s) => {
+    const bands = 8;
+    const bw = s / bands;
+    for (let b = 0; b < bands; b++) {
+      g.fillStyle = b % 2 ? '#f6f3ec' : '#e4ddd0';
+      g.fillRect(b * bw, 0, bw, s);
+    }
+  });
+}
+
+/** fine beadboard panels with groove shadows; one tile = 24" */
+export function beadboardTexture(): THREE.CanvasTexture {
+  return canvasTexture(512, (g, s) => {
+    const rnd = mulberry32(0xbead);
+    g.fillStyle = '#f7f5ef';
+    g.fillRect(0, 0, s, s);
+    const boards = 8;
+    const bw = s / boards;
+    for (let b = 0; b < boards; b++) {
+      const tone = 240 + Math.floor(rnd() * 10);
+      g.fillStyle = `rgb(${tone},${tone - 2},${tone - 6})`;
+      g.fillRect(b * bw + 2, 0, bw - 4, s);
+      g.strokeStyle = 'rgba(110,100,86,0.4)';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(b * bw + 1, 0);
+      g.lineTo(b * bw + 1, s);
+      g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,0.6)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(b * bw + 4, 0);
+      g.lineTo(b * bw + 4, s);
+      g.stroke();
+    }
+  });
+}
+
+/** floral damask-style wallpaper motif; one tile = 24" */
+export function damaskTexture(): THREE.CanvasTexture {
+  return canvasTexture(512, (g, s) => {
+    g.fillStyle = '#f3efe6';
+    g.fillRect(0, 0, s, s);
+    g.strokeStyle = 'rgba(150,132,104,0.5)';
+    g.fillStyle = 'rgba(150,132,104,0.28)';
+    const motif = (cx: number, cy: number, r: number): void => {
+      g.lineWidth = 2;
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        g.beginPath();
+        g.ellipse(cx + Math.cos(a) * r * 0.55, cy + Math.sin(a) * r * 0.55, r * 0.34, r * 0.16, a, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.beginPath();
+      g.arc(cx, cy, r * 0.18, 0, Math.PI * 2);
+      g.fill();
+    };
+    // offset grid of motifs
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 4; col++) {
+        motif(col * 128 + (row % 2 ? 64 : 0) + 32, row * 128 + 64, 42);
+      }
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Floor finishes
 // ---------------------------------------------------------------------------

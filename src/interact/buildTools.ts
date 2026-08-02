@@ -19,7 +19,9 @@ export interface Tool {
 export interface ToolContext {
   toast(msg: string): void;
   /** raycast the wall meshes of the active floor; plan-space hit + wall id */
-  pickWall(ev: PointerEvent): { wallId: string; point: Vec2 } | null;
+  pickWall(ev: PointerEvent): { wallId: string; point: Vec2; distance: number } | null;
+  /** camera distance to the active floor plane under the cursor */
+  floorHitDistance(ev: PointerEvent): number | null;
   /** notify that the armed tool finished/cancelled (palette un-highlights) */
   onDisarm(): void;
 }
@@ -471,6 +473,136 @@ export class FloorFillTool implements Tool {
       color: this.arm.color,
     } as Omit<PlacedElement, 'id'>);
     this.ctx.toast('Floor placed.');
+  }
+
+  onHover(): void {}
+
+  cancel(): void {
+    store.setGhost(null);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wallpaper: click inside a room to paint its bounding walls; click a wall
+// directly to paint every wall continuously connected to it (the exterior
+// shell paints as one).
+// ---------------------------------------------------------------------------
+
+export interface WallpaperArm {
+  textureId: string;
+  color: string;
+}
+
+function segPointDist(px: number, pz: number, a: Vec2, b: Vec2): number {
+  const abx = b.x - a.x;
+  const abz = b.z - a.z;
+  const ab2 = abx * abx + abz * abz || 1;
+  const t = Math.max(0, Math.min(1, ((px - a.x) * abx + (pz - a.z) * abz) / ab2));
+  return Math.hypot(px - (a.x + abx * t), pz - (a.z + abz * t));
+}
+
+/** Walls whose run hugs the region polygon's boundary. */
+function wallsBoundingRegion(walls: Wall[], polygon: Vec2[]): Wall[] {
+  const near = (px: number, pz: number, tol: number): boolean => {
+    for (let i = 0; i < polygon.length; i++) {
+      if (segPointDist(px, pz, polygon[i], polygon[(i + 1) % polygon.length]) <= tol) return true;
+    }
+    return false;
+  };
+  return walls.filter((w) => {
+    const len = Math.hypot(w.b.x - w.a.x, w.b.z - w.a.z);
+    const steps = Math.max(2, Math.ceil(len / 12));
+    const tol = w.thickIn / 2 + 7;
+    let hugged = 0;
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      if (near(w.a.x + (w.b.x - w.a.x) * t, w.a.z + (w.b.z - w.a.z) * t, tol)) hugged += 1;
+    }
+    return hugged / (steps + 1) > 0.5; // most of the wall lies on the boundary
+  });
+}
+
+/** Every wall reachable from `seed` through welded ends or T-joins. */
+function connectedWalls(walls: Wall[], seedId: string): Wall[] {
+  const touching = (a: Wall, b: Wall): boolean => {
+    for (const p of [a.a, a.b]) {
+      if (Math.hypot(b.a.x - p.x, b.a.z - p.z) <= 6 || Math.hypot(b.b.x - p.x, b.b.z - p.z) <= 6) return true;
+      if (segPointDist(p.x, p.z, b.a, b.b) <= b.thickIn / 2 + 2) return true;
+    }
+    for (const p of [b.a, b.b]) {
+      if (segPointDist(p.x, p.z, a.a, a.b) <= a.thickIn / 2 + 2) return true;
+    }
+    return false;
+  };
+  const seed = walls.find((w) => w.id === seedId);
+  if (!seed) return [];
+  const group = new Set<string>([seed.id]);
+  const queue = [seed];
+  while (queue.length) {
+    const cur = queue.pop()!;
+    for (const w of walls) {
+      if (!group.has(w.id) && touching(cur, w)) {
+        group.add(w.id);
+        queue.push(w);
+      }
+    }
+  }
+  return walls.filter((w) => group.has(w.id));
+}
+
+export class WallpaperTool implements Tool {
+  private arm: WallpaperArm;
+  private ctx: ToolContext;
+  private downAt: { x: number; y: number } | null = null;
+
+  constructor(arm: Partial<WallpaperArm>, ctx: ToolContext) {
+    this.arm = { textureId: arm.textureId ?? 'paint', color: arm.color ?? '#f2eee6' };
+    this.ctx = ctx;
+  }
+
+  onDown(_floor: Vec2 | null, ev: PointerEvent): boolean {
+    this.downAt = { x: ev.clientX, y: ev.clientY };
+    return true;
+  }
+
+  onMove(): void {}
+
+  onUp(floor: Vec2 | null, ev: PointerEvent): void {
+    const down = this.downAt;
+    this.downAt = null;
+    if (!down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
+    const s = store.getState();
+    const walls = wallsOn(s.activeFloor);
+    let targets: Wall[] = [];
+    // clicking a wall SURFACE (closer than the floor under the cursor) paints
+    // its whole connected run; clicking INSIDE a room papers that room's walls
+    const hit = this.ctx.pickWall(ev);
+    const floorDist = this.ctx.floorHitDistance(ev);
+    if (hit && (floorDist === null || hit.distance < floorDist - 0.02)) {
+      targets = connectedWalls(walls, hit.wallId);
+    } else {
+      const region = floor ? fillRegion(s.elements, s.activeFloor, floor) : ({ ok: false } as const);
+      if (region.ok) {
+        targets = wallsBoundingRegion(walls, region.polygon);
+      } else if (hit) {
+        targets = connectedWalls(walls, hit.wallId);
+      } else {
+        this.ctx.toast(
+          walls.length
+            ? 'Click inside a walled area to paper a room, or click a wall to paint its whole run.'
+            : 'Draw some walls first.',
+        );
+        return;
+      }
+    }
+    if (!targets.length) {
+      this.ctx.toast('No walls there to paint.');
+      return;
+    }
+    const originals = structuredClone(targets) as PlacedElement[];
+    store.updateElementsLive(targets.map((w) => ({ id: w.id, patch: { textureId: this.arm.textureId, color: this.arm.color } })));
+    store.commitLiveEdit(originals);
+    this.ctx.toast(`Painted ${targets.length} wall${targets.length > 1 ? 's' : ''}.`);
   }
 
   onHover(): void {}

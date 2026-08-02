@@ -20,6 +20,11 @@ export class CutawayController {
     this.meshes = meshes;
   }
 
+  /** Element meshes were rebuilt (fresh materials) — re-stamp on next update. */
+  invalidate(): void {
+    this.lastKey = '';
+  }
+
   /** Call whenever the camera settles or state changes; cheap when nothing moved. */
   update(cameraPos: THREE.Vector3): boolean {
     const s = store.getState();
@@ -58,7 +63,9 @@ export class CutawayController {
       const lower = lowered.has(wallId);
       for (const mat of this.meshes.clipMats(id)) {
         mat.clippingPlanes = lower ? [plane] : [];
-        mat.clipShadows = lower;
+        // the cutaway is VISUAL only — a lowered wall still shades at full
+        // height, so sunlight enters strictly through panes and openings
+        mat.clipShadows = false;
         mat.needsUpdate = true;
       }
     }

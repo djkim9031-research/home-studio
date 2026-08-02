@@ -90,8 +90,23 @@ export class PointerController {
     return null;
   }
 
+  /** Camera distance to the active floor's build plane under the cursor. */
+  floorHitDistance(ev: PointerEvent): number | null {
+    const rect = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+      -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.ray.setFromCamera(ndc, this.rig.camera);
+    const s = store.getState();
+    const y = i2m(floorBaseIn(s.elements, s.activeFloor));
+    const hit = new THREE.Vector3();
+    if (!this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), hit)) return null;
+    return hit.distanceTo(this.rig.camera.position);
+  }
+
   /** Raycast only the ACTIVE floor's wall meshes. */
-  pickWall(ev: PointerEvent): { wallId: string; point: Vec2 } | null {
+  pickWall(ev: PointerEvent): { wallId: string; point: Vec2; distance: number } | null {
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((ev.clientX - rect.left) / rect.width) * 2 - 1,
@@ -112,13 +127,13 @@ export class PointerController {
         if (o.userData.itemId) {
           const el = s.elements.find((x) => x.id === o!.userData.itemId);
           if (el?.kind === 'wall') {
-            return { wallId: el.id, point: { x: h.point.x / i2m(1), z: h.point.z / i2m(1) } };
+            return { wallId: el.id, point: { x: h.point.x / i2m(1), z: h.point.z / i2m(1) }, distance: h.distance };
           }
           // fall through openings back to their wall
           if (el && (el.kind === 'door' || el.kind === 'window')) {
             const wall = s.elements.find((x): x is Wall => x.kind === 'wall' && x.id === el.wallId);
             if (wall && wall.floor === s.activeFloor) {
-              return { wallId: wall.id, point: { x: h.point.x / i2m(1), z: h.point.z / i2m(1) } };
+              return { wallId: wall.id, point: { x: h.point.x / i2m(1), z: h.point.z / i2m(1) }, distance: h.distance };
             }
           }
         }

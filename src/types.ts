@@ -13,7 +13,7 @@ export interface Pose {
 
 export type FloorIndex = -1 | 0 | 1 | 2; // -1 = basement, 0 = ground
 export type Mode = 'build' | 'interior';
-export type BuildCategory = 'walls' | 'openings' | 'stairs' | 'flooring' | 'rooms';
+export type BuildCategory = 'walls' | 'openings' | 'stairs' | 'flooring' | 'wallpaper' | 'rooms';
 
 interface ElementBase {
   id: string;
@@ -86,7 +86,7 @@ export const categoryOf = (e: PlacedElement): BuildCategory =>
           : 'openings';
 
 export const MODE_CATEGORIES: Record<Mode, BuildCategory[]> = {
-  build: ['walls', 'openings', 'stairs', 'flooring', 'rooms'],
+  build: ['walls', 'openings', 'stairs', 'flooring', 'wallpaper', 'rooms'],
   interior: [], // furniture categories arrive with interior mode
 };
 

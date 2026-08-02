@@ -51,7 +51,7 @@ export function setupLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
   sun.position.set(-18, 14, -26);
   sun.target.position.copy(center);
   sun.castShadow = true;
-  sun.shadow.mapSize.setScalar(mobile ? 1024 : 2048);
+  sun.shadow.mapSize.setScalar(mobile ? 1024 : 4096);
   const cam = sun.shadow.camera;
   cam.left = -24;
   cam.right = 24;
@@ -391,7 +391,7 @@ export function setupLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
     center.set(i2m(centerIn.x), 0, i2m(centerIn.z));
     sun.target.position.copy(center);
     sun.target.updateMatrixWorld();
-    const half = Math.max(24, i2m(halfSpanIn + 200));
+    const half = Math.max(14, i2m(halfSpanIn + 140));
     cam.left = -half;
     cam.right = half;
     cam.top = half;

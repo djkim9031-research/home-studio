@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import {
+  beadboardTexture,
   brickTexture,
   carpetTexture,
   concreteTexture,
+  damaskTexture,
   oakPlankTexture,
   paintTexture,
   plasterTexture,
+  stripesTexture,
   tileTexture,
   woodPanelTexture,
 } from '../scene/textures';
@@ -32,6 +35,9 @@ export const WALL_TEXTURES: FinishDef[] = [
   { id: 'plaster', label: 'Plaster', tileIn: 32, make: plasterTexture, rough: 0.95 },
   { id: 'brick', label: 'Brick', tileIn: 32, make: brickTexture, rough: 0.9 },
   { id: 'woodPanel', label: 'Wood panel', tileIn: 32, make: woodPanelTexture, rough: 0.72 },
+  { id: 'stripes', label: 'Stripes', tileIn: 32, make: stripesTexture, rough: 0.9 },
+  { id: 'beadboard', label: 'Beadboard', tileIn: 24, make: beadboardTexture, rough: 0.85 },
+  { id: 'damask', label: 'Damask', tileIn: 24, make: damaskTexture, rough: 0.92 },
 ];
 
 export const FLOOR_TEXTURES: FinishDef[] = [

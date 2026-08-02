@@ -23,6 +23,14 @@ export const THUMBS = {
   stair: S(
     `<path d="M8 40 h8 v-8 h8 v-8 h8 v-8 h8 v-4 h-2 v2 h-8 v8 h-8 v8 h-8 v8 h-6 z" fill="#d9c9a8" stroke="#8a7a64" stroke-width="2" stroke-linejoin="round"/>`,
   ),
+  wallpaper: S(
+    `<rect x="8" y="12" width="22" height="28" rx="1.5" fill="#efe6d3" stroke="#8a7a64" stroke-width="2"/>
+     <line x1="13" y1="12" x2="13" y2="40" stroke="#c9ab7c" stroke-width="2.4"/>
+     <line x1="20" y1="12" x2="20" y2="40" stroke="#c9ab7c" stroke-width="2.4"/>
+     <line x1="27" y1="12" x2="27" y2="40" stroke="#c9ab7c" stroke-width="2.4"/>
+     <rect x="32" y="18" width="9" height="6" rx="2" fill="#b08d57"/>
+     <line x1="36" y1="24" x2="36" y2="34" stroke="#8a7a64" stroke-width="2"/>`,
+  ),
   room: S(
     `<rect x="7" y="10" width="34" height="28" rx="1.5" fill="none" stroke="#8a7a64" stroke-width="2"/>
      <rect x="13" y="19" width="22" height="10" rx="4" fill="#efe6d3" stroke="#b08d57" stroke-width="1.6"/>

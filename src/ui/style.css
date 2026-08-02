@@ -1157,3 +1157,19 @@ button.ui-btn.danger:hover {
   padding: 4px 10px;
   border-radius: 14px;
 }
+
+.hs-swatches {
+  display: inline-flex;
+  gap: 4px;
+}
+.hs-swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+}
+.hs-swatch:hover {
+  outline: 2px solid var(--brass);
+}
