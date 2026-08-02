@@ -477,6 +477,29 @@ if (params.get('qa') === 'rectio') {
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
 }
+if (params.get('qa') === 'partition') {
+  // a room with a free-standing interior partition: paint the interior; the
+  // partition's exposed end cap should take the room's interior finish
+  setTimeout(() => {
+    store.clearAll();
+    const mk = (a: { x: number; z: number }, b: { x: number; z: number }) => ({ kind: 'wall', floor: 0, a, b, heightIn: 96, thickIn: 5, color: '#f2eee6', textureId: 'paint' }) as never;
+    store.placeElementsBatch([
+      mk({ x: 0, z: 0 }, { x: 300, z: 0 }), mk({ x: 300, z: 0 }, { x: 300, z: 200 }), mk({ x: 300, z: 200 }, { x: 0, z: 200 }), mk({ x: 0, z: 200 }, { x: 0, z: 0 }),
+      mk({ x: 150, z: 0 }, { x: 150, z: 120 }), // partition: attached at north, free end inside
+    ]);
+    const patches = paintGroupPatches(store.getState().elements, 0, 0, { textureId: 'stripes', color: '#c0392b' });
+    store.updateElementsBatch(
+      patches.map((pt) => {
+        const patch: Record<string, unknown> = {};
+        if (pt.facePosSpans) patch.facePosSpans = pt.facePosSpans;
+        if (pt.faceNegSpans) patch.faceNegSpans = pt.faceNegSpans;
+        return { id: pt.id, patch: patch as never };
+      }),
+    );
+    document.title = 'QAPARTITION ready';
+    rig.toDefaultView();
+  }, 2600);
+}
 if (params.get('qa') === 'paintclick') {
   // arm the Paint tool and click the seed room's exterior wall — the whole
   // exterior group should get painted through the real tool path

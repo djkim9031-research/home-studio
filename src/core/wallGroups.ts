@@ -114,6 +114,19 @@ export function buildingExteriorFinish(elements: PlacedElement[], floor: number)
   return null;
 }
 
+/** For a wall with no exterior face: 'partition' when the SAME room sits on both
+ * sides (a free-standing divider inside one room — its thickness edges are all
+ * interior surface), 'divider' when it separates two DIFFERENT rooms (its
+ * thickness is part of the building envelope), or null if it has an exterior face. */
+export function wallSharedInterior(elements: PlacedElement[], floor: number, wall: Wall): 'partition' | 'divider' | null {
+  const rooms = roomsFor(elements, floor);
+  const t = wallLen(wall) / 2;
+  const rPos = faceRegionAt(wall, true, t, rooms);
+  const rNeg = faceRegionAt(wall, false, t, rooms);
+  if (rPos === -1 || rNeg === -1) return null; // has an exterior face
+  return rPos === rNeg ? 'partition' : 'divider';
+}
+
 /** Which group the clicked face belongs to: a room index, or -1 for exterior. */
 export function faceGroupTarget(elements: PlacedElement[], floor: number, wall: Wall, plusSide: boolean, tClick: number): number {
   const rooms = detectEnclosedRegions(elements, floor);
