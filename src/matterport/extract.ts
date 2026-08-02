@@ -313,22 +313,27 @@ export function applySweepsToHouse(house: House, sweeps: SweepPoint[]): ExtractR
   let applied = 0;
   let widthFt = 0;
   let depthFt = 0;
-  floors.forEach(([, pts], idx) => {
+  // one shared coordinate frame for every floor — the sweeps are all measured
+  // in the same model space, and stories must stack in the shell, so each
+  // raster/boundary is offset by the GLOBAL extents rather than its own
+  const hulls = floors.map(([, pts]) => ({ pts, hull: hullFromPoints(pts) }));
+  const allPts = hulls.filter((f) => f.hull.length >= 3).flatMap((f) => f.hull);
+  if (allPts.length < 3) return { floors: floors.length, applied: 0, widthFt: 0, depthFt: 0 };
+  const minX = Math.min(...allPts.map((p) => p.x));
+  const minZ = Math.min(...allPts.map((p) => p.z));
+  const maxX = Math.max(...allPts.map((p) => p.x));
+  const maxZ = Math.max(...allPts.map((p) => p.z));
+  const pad = 24;
+  const w = Math.ceil(maxX - minX) + pad * 2;
+  const h = Math.ceil(maxZ - minZ) + pad * 2;
+  hulls.forEach(({ pts, hull }, idx) => {
     const plan = house.plans[idx];
     if (!plan) return;
-    const hull = hullFromPoints(pts);
     if (hull.length < 3) return;
-    const minX = Math.min(...hull.map((p) => p.x));
-    const minZ = Math.min(...hull.map((p) => p.z));
-    const maxX = Math.max(...hull.map((p) => p.x));
-    const maxZ = Math.max(...hull.map((p) => p.z));
     if (idx === 0) {
-      widthFt = (maxX - minX) / 12;
-      depthFt = (maxZ - minZ) / 12;
+      widthFt = (Math.max(...hull.map((p) => p.x)) - Math.min(...hull.map((p) => p.x))) / 12;
+      depthFt = (Math.max(...hull.map((p) => p.z)) - Math.min(...hull.map((p) => p.z))) / 12;
     }
-    const pad = 24;
-    const w = Math.ceil(maxX - minX) + pad * 2;
-    const h = Math.ceil(maxZ - minZ) + pad * 2;
     const c = document.createElement('canvas');
     c.width = w;
     c.height = h;

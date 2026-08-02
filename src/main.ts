@@ -9,7 +9,8 @@ import { buildShell, type BuiltShell } from './scene/shell';
 import { loadScanMesh, type LoadedScan } from './scene/scanMesh';
 import { CameraRig, setCameraWorld } from './scene/camera';
 import { createSceneHost } from './scene/host';
-import { getHouse, saveHouse } from './state/houses';
+import { getHouse, parseHouseFile, saveHouse } from './state/houses';
+import treehouseFile from './data/treehouse.json';
 import { buildLanding } from './ui/landing';
 import type { House, Vec2 } from './types';
 
@@ -196,7 +197,8 @@ function openHouse(house: House): void {
 
   storySeg.innerHTML = '';
   container.querySelector('.hs-mp-panel')?.remove();
-  buildMatterportPanel(container, house.matterportId, async (setBusy) => {
+  const noPanel = new URLSearchParams(location.hash.replace(/^#/, '')).get('nomp') === '1';
+  buildMatterportPanel(container, noPanel ? null : house.matterportId, async (setBusy) => {
     if (!currentHouse?.matterportId) return;
     setBusy(true);
     toast('Connecting to the tour and reading its scan points…');
@@ -268,6 +270,19 @@ backBtn.addEventListener('click', () => {
   landing.show();
 });
 
+// bundled sample: "treehouse", a real 1000-sqft townhome whose two floor
+// outlines were measured from the scan points of its public Matterport tour.
+// Seeded into the library once; deleting it is respected on later visits.
+try {
+  if (!localStorage.getItem('hs:seed:treehouse')) {
+    const seeded = parseHouseFile(JSON.stringify(treehouseFile));
+    if (seeded && !getHouse(seeded.id)) saveHouse(seeded);
+    localStorage.setItem('hs:seed:treehouse', '1');
+  }
+} catch {
+  // seeding is cosmetic — never block startup
+}
+
 const landing = buildLanding(app, openHouse);
 const landingVisible = (): boolean =>
   (app.querySelector('.hs-landing') as HTMLElement | null)?.style.display !== 'none';
@@ -312,6 +327,18 @@ if (params.get('demo') === 'template') {
       }, 12000);
     }
   });
+}
+{
+  // deep link: #open=<house name or id> jumps straight to a saved house
+  const openParam = params.get('open');
+  if (openParam) {
+    import('./state/houses').then((houses) => {
+      const target = houses
+        .listHouses()
+        .find((h) => h.id === openParam || h.name.toLowerCase() === openParam.toLowerCase());
+      if (target) openHouse(target);
+    });
+  }
 }
 if (params.get('demo') === 'sample') {
   // deterministic sample house: a 40'×28' rectangle with two rooms + openings,
