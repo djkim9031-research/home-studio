@@ -14,7 +14,7 @@ const PAD = 14;
 export function buildMinimap(root: HTMLElement, getFloor: () => FloorIndex): Minimap {
   const panel = document.createElement('div');
   panel.className = 'hs-minimap';
-  panel.innerHTML = `<div class="hs-mini-head" data-k="head">Floor plan</div>`;
+  panel.innerHTML = `<div class="hs-mini-head" data-k="head"><span data-k="title">Floor plan</span><button class="hs-collapse" data-k="toggle" title="Collapse">▾</button></div>`;
   const canvas = document.createElement('canvas');
   canvas.width = SIZE * 2;
   canvas.height = SIZE * 2;
@@ -25,7 +25,13 @@ export function buildMinimap(root: HTMLElement, getFloor: () => FloorIndex): Min
   const g = canvas.getContext('2d')!;
   g.scale(2, 2);
 
-  const head = panel.querySelector('[data-k="head"]') as HTMLElement;
+  const head = panel.querySelector('[data-k="title"]') as HTMLElement;
+  const toggle = panel.querySelector('[data-k="toggle"]') as HTMLButtonElement;
+  toggle.addEventListener('click', () => {
+    const collapsed = panel.classList.toggle('collapsed');
+    canvas.style.display = collapsed ? 'none' : '';
+    toggle.textContent = collapsed ? '▸' : '▾';
+  });
 
   const refresh = (): void => {
     const floor = getFloor();

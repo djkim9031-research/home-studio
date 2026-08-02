@@ -67,19 +67,33 @@ export function buildSunPanel(
   panel.innerHTML = `
     <div class="sun-head">
       <span>☀ Sunlight</span>
-      <label class="sun-toggle"><input type="checkbox" data-k="enabled"> real sun</label>
+      <span style="display:flex;gap:8px;align-items:center;">
+        <label class="sun-toggle"><input type="checkbox" data-k="enabled"> real sun</label>
+        <button class="hs-collapse" data-k="collapse" title="Collapse">▾</button>
+      </span>
     </div>
-    <div class="sun-row">
-      <input type="text" data-k="date" class="sun-input" size="10" title="Date (YYYY-MM-DD)">
-      <input type="text" data-k="time" class="sun-input" size="8" title="Time, e.g. 17:30 or 5:30 pm">
-    </div>
-    <input type="range" data-k="slider" min="0" max="1439" step="5" class="sun-slider" title="Time of day">
-    <div class="sun-info" data-k="info"></div>
-    <div class="sun-row">
-      <label class="sun-toggle"><input type="checkbox" data-k="clouds"> clouds</label>
-      <input type="range" data-k="cloudPct" min="0" max="100" step="5" class="sun-slider cloud-slider">
-      <span class="sun-pct" data-k="pct"></span>
+    <div class="sun-body" data-k="body">
+      <div class="sun-row">
+        <input type="text" data-k="date" class="sun-input" size="10" title="Date (YYYY-MM-DD)">
+        <input type="text" data-k="time" class="sun-input" size="8" title="Time, e.g. 17:30 or 5:30 pm">
+      </div>
+      <input type="range" data-k="slider" min="0" max="1439" step="5" class="sun-slider" title="Time of day">
+      <div class="sun-info" data-k="info"></div>
+      <div class="sun-row">
+        <label class="sun-toggle"><input type="checkbox" data-k="clouds"> clouds</label>
+        <input type="range" data-k="cloudPct" min="0" max="100" step="5" class="sun-slider cloud-slider">
+        <span class="sun-pct" data-k="pct"></span>
+      </div>
     </div>`;
+  {
+    const body = panel.querySelector('[data-k="body"]') as HTMLElement;
+    const cbtn = panel.querySelector('[data-k="collapse"]') as HTMLButtonElement;
+    cbtn.addEventListener('click', () => {
+      const hidden = body.style.display === 'none';
+      body.style.display = hidden ? '' : 'none';
+      cbtn.textContent = hidden ? '▾' : '▸';
+    });
+  }
 
   const el = <T extends HTMLElement>(k: string): T => panel.querySelector(`[data-k="${k}"]`) as T;
   const enabledEl = el<HTMLInputElement>('enabled');

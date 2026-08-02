@@ -12,7 +12,7 @@ export interface Pose {
 }
 
 export type FloorIndex = -1 | 0 | 1 | 2; // -1 = basement, 0 = ground
-export type Mode = 'build' | 'interior';
+export type Mode = 'build' | 'interior' | 'view';
 export type BuildCategory = 'walls' | 'openings' | 'stairs' | 'flooring' | 'wallpaper' | 'rooms';
 
 interface ElementBase {
@@ -106,6 +106,7 @@ export const categoryOf = (e: PlacedElement): BuildCategory =>
 export const MODE_CATEGORIES: Record<Mode, BuildCategory[]> = {
   build: ['walls', 'openings', 'stairs', 'flooring', 'wallpaper', 'rooms'],
   interior: [], // furniture categories arrive with interior mode
+  view: [], // live viewer — no editing palette
 };
 
 /** Shoelace area of a plan polygon, square feet. */

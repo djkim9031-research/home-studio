@@ -49,6 +49,7 @@ export function buildToolbar(root: HTMLElement, project: HomeProject, actions: T
   const interiorBtn = btn(gMode, 'Interior', 'Interior design — coming soon', () => {});
   interiorBtn.disabled = true;
   interiorBtn.setAttribute('aria-disabled', 'true');
+  const viewBtn = btn(gMode, 'View', 'Live viewer — sunlight + floor plan, no editing', () => store.setMode('view'));
 
   // floor selector — honors the intake facts when present
   const gFloor = group();
@@ -86,6 +87,7 @@ export function buildToolbar(root: HTMLElement, project: HomeProject, actions: T
   const refresh = (): void => {
     const s = store.getState();
     buildBtn.classList.toggle('active', s.mode === 'build');
+    viewBtn.classList.toggle('active', s.mode === 'view');
     for (const [f, b] of floorButtons) b.classList.toggle('active', s.activeFloor === f);
     topBtn.classList.toggle('active', viewMode === 'top');
     perspBtn.classList.toggle('active', viewMode === 'persp');
@@ -94,6 +96,9 @@ export function buildToolbar(root: HTMLElement, project: HomeProject, actions: T
     gridBtn.classList.toggle('active', s.settings.showGrid);
     undoBtn.disabled = !store.canUndo();
     redoBtn.disabled = !store.canRedo();
+    // title mode caption
+    title.querySelector('small')!.textContent =
+      s.mode === 'view' ? 'live viewer' : s.mode === 'interior' ? 'interior design' : 'house build mode';
   };
   refresh();
   return { refresh };

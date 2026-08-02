@@ -231,9 +231,11 @@ function openProject(project: HomeProject): void {
     onTopView: () => rig.toTopView(),
     onDefaultView: () => rig.toDefaultView(),
   });
+  store.setMode('build');
   store.setActiveFloor(0);
   store.importElements(project.elements);
   fitWorld(true);
+  applyModeUI();
 }
 
 // autosave + render sync
@@ -282,9 +284,19 @@ store.subscribe((s, ev) => {
     editPanel.refresh();
     minimap.refresh();
     refreshGrid();
+    applyModeUI();
   }
   if (ev.kind === 'settings') refreshGrid();
 });
+
+/** In the live View mode, hide the editing UI (palette + placed/edit panels)
+ * and leave only the sunlight and floor-plan windows. */
+function applyModeUI(): void {
+  const viewing = store.getState().mode === 'view';
+  if (viewing) disarm();
+  (editorEl.querySelector('.hs-palette') as HTMLElement | null)?.style.setProperty('display', viewing ? 'none' : '');
+  rightCol.style.display = viewing ? 'none' : '';
+}
 
 const landing = buildLanding(app, openProject);
 
@@ -360,6 +372,7 @@ if (params.get('cam') === 'low') {
   const floorParam = params.get('floor');
   if (floorParam) store.setActiveFloor(Number(floorParam) as -1 | 0 | 1 | 2);
   if (params.get('cutaway') === '0') store.setCutaway(false);
+  if (params.get('mode') === 'view') store.setMode('view');
 }
 if (params.get('qa') === 'hoverwin') {
   // arm the window tool and hover a wall: the ghost + BOTH end-distance chips

@@ -1196,3 +1196,22 @@ button.ui-btn.danger:hover {
   display: block;
   border-radius: 6px;
 }
+
+.hs-collapse {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--brass);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+  line-height: 1;
+}
+.hs-collapse:hover {
+  color: var(--ink);
+}
+.hs-mini-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
