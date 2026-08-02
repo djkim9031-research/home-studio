@@ -477,6 +477,24 @@ if (params.get('qa') === 'rectio') {
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
 }
+if (params.get('qa') === 'paintclick') {
+  // arm the Paint tool and click the seed room's exterior wall — the whole
+  // exterior group should get painted through the real tool path
+  setTimeout(() => {
+    pointer.setTool(new WallPaintTool({ textureId: 'brick', color: '#c76f4a' }, toolCtx));
+    const fire = (type: string, x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 8, button: 0, bubbles: true }));
+    };
+    fire('pointermove', 700, 470);
+    fire('pointerdown', 700, 470);
+    fire('pointerup', 700, 470);
+    setTimeout(() => {
+      const walls = store.getState().elements.filter((e) => e.kind === 'wall') as { facePosSpans?: unknown[]; faceNegSpans?: unknown[] }[];
+      const painted = walls.filter((w) => (w.facePosSpans?.length ?? 0) + (w.faceNegSpans?.length ?? 0) > 0).length;
+      document.title = `QAPAINTCLICK walls=${walls.length} painted=${painted}`;
+    }, 300);
+  }, 3000);
+}
 if (params.get('qa') === 'maghover') {
   // hovering a rect 2in off an existing wall: the GHOST should snap flush
   setTimeout(() => {
