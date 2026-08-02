@@ -2,7 +2,7 @@ import { DEFAULT_DOOR, DEFAULT_STAIR, DEFAULT_WALL_H, DEFAULT_WALL_T, DEFAULT_WI
 import { formatFeetInchesFull } from '../core/format';
 import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
-import { faceGroupTarget, paintGroupPatches } from '../core/wallGroups';
+import { faceGroupTarget, paintGroupPatches, regroupClearPatches } from '../core/wallGroups';
 import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
 import type { GhostState } from '../state/store';
@@ -306,6 +306,7 @@ export class WallTool implements Tool {
       const outside = this.arm.rectOutside;
       return insideIsPos ? { faceNeg: inside, facePos: outside } : { faceNeg: outside, facePos: inside };
     };
+    const before = store.getState().elements;
     store.placeElementsBatch(
       fresh.map((r) => ({
         kind: 'wall' as const,
@@ -319,6 +320,19 @@ export class WallTool implements Tool {
         ...faceFor(r),
       })),
     );
+    // a new room can turn a wall's exterior face into an interior one; drop the
+    // now-stale exterior paint on those stretches so it doesn't linger
+    const clears = regroupClearPatches(before, store.getState().elements, floorIdx);
+    if (clears.length) {
+      store.updateElementsBatch(
+        clears.map((pt) => {
+          const patch: Partial<PlacedElement> = {};
+          if (pt.facePosSpans) (patch as { facePosSpans?: FaceSpan[] }).facePosSpans = pt.facePosSpans;
+          if (pt.faceNegSpans) (patch as { faceNegSpans?: FaceSpan[] }).faceNegSpans = pt.faceNegSpans;
+          return { id: pt.id, patch };
+        }),
+      );
+    }
     if (this.arm.shape === 'line') this.lastB = b; // chain: next segment starts here
   }
 

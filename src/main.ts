@@ -477,6 +477,34 @@ if (params.get('qa') === 'rectio') {
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
 }
+if (params.get('qa') === 'regroup') {
+  // paint room A's exterior brick, then join room B; A's shared (now interior)
+  // face must drop the stale brick
+  setTimeout(() => {
+    store.clearAll();
+    const mk = (a: { x: number; z: number }, b: { x: number; z: number }) => ({ kind: 'wall', floor: 0, a, b, heightIn: 96, thickIn: 5, color: '#f2eee6', textureId: 'paint' }) as never;
+    store.placeElementsBatch([mk({ x: 0, z: 0 }, { x: 192, z: 0 }), mk({ x: 192, z: 0 }, { x: 192, z: 144 }), mk({ x: 192, z: 144 }, { x: 0, z: 144 }), mk({ x: 0, z: 144 }, { x: 0, z: 0 })]);
+    const ext = paintGroupPatches(store.getState().elements, 0, -1, { textureId: 'brick', color: '#c76f4a' });
+    store.updateElementsBatch(
+      ext.map((pt) => {
+        const patch: Record<string, unknown> = {};
+        if (pt.facePosSpans) patch.facePosSpans = pt.facePosSpans;
+        if (pt.faceNegSpans) patch.faceNegSpans = pt.faceNegSpans;
+        return { id: pt.id, patch: patch as never };
+      }),
+    );
+    // the shared wall is the one at x=192; capture its brick-span count before
+    const sharedBefore = store.getState().elements.find((e) => e.kind === 'wall' && e.a.x === 192 && e.b.x === 192) as { facePosSpans?: unknown[]; faceNegSpans?: unknown[] } | undefined;
+    const beforeCount = (sharedBefore?.facePosSpans?.length ?? 0) + (sharedBefore?.faceNegSpans?.length ?? 0);
+    const tool = new WallTool({ shape: 'rect', rectLenIn: 192, rectWidIn: 144, rectAnchor: 'tl' }, toolCtx);
+    (tool as unknown as { a: { x: number; z: number } }).a = { x: 192, z: 0 };
+    (tool as unknown as { onUp(f: { x: number; z: number }): void }).onUp({ x: 192, z: 0 });
+    const sharedAfter = store.getState().elements.find((e) => e.kind === 'wall' && e.a.x === 192 && e.b.x === 192) as { facePosSpans?: unknown[]; faceNegSpans?: unknown[] } | undefined;
+    const afterCount = (sharedAfter?.facePosSpans?.length ?? 0) + (sharedAfter?.faceNegSpans?.length ?? 0);
+    document.title = `QAREGROUP sharedBrickSpans ${beforeCount}->${afterCount}`;
+    rig.toDefaultView();
+  }, 2600);
+}
 if (params.get('qa') === 'paintgroup') {
   // two rooms sharing a wall: paint each interior + the exterior via groups
   setTimeout(() => {

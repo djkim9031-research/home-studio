@@ -154,6 +154,74 @@ export interface GroupPatch {
   faceNegSpans?: FaceSpan[];
 }
 
+/** Remove the finish over `ranges` (revert those stretches to bare wall). */
+function cutSpans(existing: FaceSpan[] | undefined, whole: WallFace | undefined, len: number, ranges: [number, number][]): FaceSpan[] {
+  const base: FaceSpan[] = existing ? [...existing] : whole ? [{ from: 0, to: len, textureId: whole.textureId, color: whole.color }] : [];
+  const out: FaceSpan[] = [];
+  for (const sp of base) {
+    let pieces: [number, number][] = [[sp.from, sp.to]];
+    for (const [rf, rt] of ranges) {
+      const next: [number, number][] = [];
+      for (const [pf, pt] of pieces) {
+        if (rt <= pf || rf >= pt) {
+          next.push([pf, pt]);
+          continue;
+        }
+        if (rf > pf) next.push([pf, rf]);
+        if (rt < pt) next.push([rt, pt]);
+      }
+      pieces = next;
+    }
+    for (const [pf, pt] of pieces) if (pt - pf > 1) out.push({ ...sp, from: pf, to: pt });
+  }
+  return out.sort((a, b) => a.from - b.from);
+}
+
+/** After a change, drop paint on any face stretch that flipped from exterior to
+ * a room interior (its old exterior finish should vanish there). Returns patches
+ * for the walls whose finish must be trimmed. */
+export function regroupClearPatches(before: PlacedElement[], after: PlacedElement[], floor: number): GroupPatch[] {
+  const roomsBefore = detectEnclosedRegions(before, floor);
+  const roomsAfter = roomsFor(after, floor);
+  const beforeById = new Map(floorWalls(before, floor).map((w) => [w.id, w]));
+  const patches: GroupPatch[] = [];
+  for (const w of floorWalls(after, floor)) {
+    const wb = beforeById.get(w.id);
+    if (!wb) continue; // brand-new wall — nothing stale to clear
+    const len = wallLen(w);
+    if (len < 1) continue;
+    const margin = Math.min(len * 0.25, w.thickIn + 2);
+    const span = Math.max(0, len - 2 * margin);
+    const n = Math.max(1, Math.ceil(span / SAMPLE_STEP_IN));
+    const patch: GroupPatch = { id: w.id };
+    let touched = false;
+    for (const plusSide of [true, false]) {
+      const ranges: [number, number][] = [];
+      let runStart: number | null = null;
+      for (let i = 0; i <= n; i++) {
+        const t = margin + (span * i) / n;
+        const wasExterior = faceRegionAt(wb, plusSide, t, roomsBefore) === -1;
+        const nowInterior = faceRegionAt(w, plusSide, t, roomsAfter) >= 0;
+        const flipped = wasExterior && nowInterior;
+        if (flipped && runStart === null) runStart = t;
+        if (!flipped && runStart !== null) {
+          ranges.push([runStart, t]);
+          runStart = null;
+        }
+      }
+      if (runStart !== null) ranges.push([runStart, len]);
+      if (!ranges.length) continue;
+      if (ranges[0][0] <= margin + 0.01) ranges[0][0] = 0;
+      if (ranges[ranges.length - 1][1] >= len - margin - 0.01) ranges[ranges.length - 1][1] = len;
+      touched = true;
+      if (plusSide) patch.faceNegSpans = cutSpans(w.faceNegSpans, w.faceNeg, len, ranges);
+      else patch.facePosSpans = cutSpans(w.facePosSpans, w.facePos, len, ranges);
+    }
+    if (touched) patches.push(patch);
+  }
+  return patches;
+}
+
 /** Span patches that paint every face in `target`'s group with `finish`. */
 export function paintGroupPatches(elements: PlacedElement[], floor: number, target: number, finish: { textureId: string; color: string }): GroupPatch[] {
   const rooms = detectEnclosedRegions(elements, floor);
