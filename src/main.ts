@@ -3,6 +3,7 @@ import { CameraRig, setCameraWorld, setTargetElevation } from './scene/camera';
 import { createSceneHost } from './scene/host';
 import { buildGround } from './scene/ground';
 import { BuildGrid } from './scene/grid';
+import { Ceilings } from './scene/ceilings';
 import { CutawayController } from './scene/cutaway';
 import { ElementMeshes } from './scene/elementMeshes';
 import { GhostVisual } from './scene/ghost';
@@ -38,6 +39,7 @@ const buildGrid = new BuildGrid(host.scene);
 setCameraWorld({ x: 0, z: 0 }, 300, []);
 const rig = new CameraRig(host.canvas);
 const meshes = new ElementMeshes(host.elementsGroup);
+const ceilings = new Ceilings(host.elementsGroup);
 const ghost = new GhostVisual(host.overlayGroup);
 const cutaway = new CutawayController(meshes);
 host.onFrame(() => {
@@ -195,6 +197,7 @@ function applyFloorVisibility(): void {
     const f = entry.group.userData.floor as number;
     entry.group.visible = f <= s.activeFloor;
   }
+  ceilings.applyVisibility(s.activeFloor);
   host.invalidate();
   host.invalidateShadows();
 }
@@ -228,6 +231,7 @@ store.subscribe((s, ev) => {
   toolbar?.refresh();
   if (ev.kind === 'items' || ev.kind === 'load') {
     meshes.sync(s.elements);
+    ceilings.sync(s.elements);
     meshes.setSelected(s.selectedIds);
     applyFloorVisibility();
     placedPanel.refresh();

@@ -27,6 +27,9 @@ real sun that casts real shadows for any date and time you pick.
     oak, tile, carpet, or concrete, tinted any color.
   - **Rooms**: click inside an enclosed area to name it; the label floats in
     the room with its square footage and can be renamed any time.
+  - **Ceilings**: enclosed areas get an automatic flat ceiling that blocks the
+    sun, so daylight only reaches the interior through your doors and windows.
+    It hides when you look down into the room, so building stays unobstructed.
   - **Cutaway walls**: the walls between you and the room drop to sill height
     while the far ones stand, exactly like the sims games; a toggle keeps every
     wall at full height.
