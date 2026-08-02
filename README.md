@@ -13,10 +13,11 @@ real sun that casts real shadows for any date and time you pick.
   count). Everything autosaves in your browser, and any home exports to a JSON
   file you can import on another machine.
 - **House build mode**
-  - **Walls**: pick height and thickness, then drag to draw — straight runs
-    that chain end-to-end, or whole rectangles and circles in one drag. Snaps
-    to 15° bearings (square angles win) and welds to existing endpoints. Paint
-    any RGB color over a finish — paint, plaster, brick, or wood panel.
+  - **Walls**: pick height and thickness. Draw straight runs by dragging (they
+    chain end-to-end, snap to 15° bearings, and weld to existing endpoints), or
+    switch to Rectangle and type the room's length and width, choose which
+    corner to anchor from, and click to drop the whole room. Paint any RGB color
+    over a finish — paint, plaster, brick, or wood panel.
   - **Doors & windows**: set the size (windows take a sill height too), then
     slide along any wall — the distance from each end of the wall reads out
     live so you can hit the measurement you want. Depth always matches the
@@ -44,7 +45,8 @@ real sun that casts real shadows for any date and time you pick.
   - **Floors**: up to three stories plus a basement, with a selector to choose
     which one you're building.
   - **Views**: flip between a bird's-eye plan view and the three-quarter
-    perspective, with a 1 ft × 1 ft reference grid you can toggle.
+    perspective, with a 1 ft × 1 ft reference grid you can toggle, and a live
+    floor-plan minimap of the storey you're building.
 - **Real sun and moon** — pick a date and time and watch the light: NOAA solar
   position, twilight, stars at night, shadow-mapped sunlight through your
   window openings, and a phase-correct moon — including the pale daytime moon

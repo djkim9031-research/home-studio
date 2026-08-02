@@ -59,7 +59,9 @@ function weld(p: Vec2, floor: FloorIndex, extra?: Vec2 | null): Vec2 | null {
 // Wall drawing: drag A→B, chained; endpoint weld > angle snap > grid.
 // ---------------------------------------------------------------------------
 
-export type WallShape = 'line' | 'rect' | 'circle';
+export type WallShape = 'line' | 'rect';
+
+export type RectAnchor = 'tl' | 'tr' | 'bl' | 'br' | 'center';
 
 export interface WallArm {
   shape: WallShape;
@@ -67,6 +69,9 @@ export interface WallArm {
   thickIn: number;
   color: string;
   textureId: string;
+  rectLenIn: number;
+  rectWidIn: number;
+  rectAnchor: RectAnchor;
 }
 
 export class WallTool implements Tool {
@@ -82,8 +87,30 @@ export class WallTool implements Tool {
       thickIn: arm.thickIn ?? DEFAULT_WALL_T,
       color: arm.color ?? '#f2eee6',
       textureId: arm.textureId ?? 'paint',
+      rectLenIn: arm.rectLenIn ?? 144,
+      rectWidIn: arm.rectWidIn ?? 120,
+      rectAnchor: arm.rectAnchor ?? 'tl',
     };
     this.ctx = ctx;
+  }
+
+  /** The two opposite corners of the L×W room when the click sits at the
+   * chosen anchor corner (or its center). */
+  private rectCorners(click: Vec2): { a: Vec2; b: Vec2 } {
+    const L = this.arm.rectLenIn;
+    const W = this.arm.rectWidIn;
+    switch (this.arm.rectAnchor) {
+      case 'tr':
+        return { a: { x: click.x - L, z: click.z }, b: { x: click.x, z: click.z + W } };
+      case 'bl':
+        return { a: { x: click.x, z: click.z - W }, b: { x: click.x + L, z: click.z } };
+      case 'br':
+        return { a: { x: click.x - L, z: click.z - W }, b: click };
+      case 'center':
+        return { a: { x: click.x - L / 2, z: click.z - W / 2 }, b: { x: click.x + L / 2, z: click.z + W / 2 } };
+      default: // tl
+        return { a: click, b: { x: click.x + L, z: click.z + W } };
+    }
   }
 
   /** The wall runs the current drag describes, plus a chip label. */
@@ -105,17 +132,6 @@ export class WallTool implements Tool {
         label: `${formatFeetInchesFull(w)} × ${formatFeetInchesFull(d)}`,
         valid: w >= 24 && d >= 24,
       };
-    }
-    if (this.arm.shape === 'circle') {
-      const r = Math.hypot(b.x - a.x, b.z - a.z);
-      const n = Math.min(48, Math.max(12, Math.round((2 * Math.PI * r) / 24)));
-      const runs: { a: Vec2; b: Vec2 }[] = [];
-      const pt = (k: number): Vec2 => ({
-        x: Math.round(a.x + Math.cos((k / n) * 2 * Math.PI) * r),
-        z: Math.round(a.z + Math.sin((k / n) * 2 * Math.PI) * r),
-      });
-      for (let k = 0; k < n; k++) runs.push({ a: pt(k), b: pt(k + 1) });
-      return { runs, label: `r ${formatFeetInchesFull(r)}`, valid: r >= 24 };
     }
     const len = Math.hypot(b.x - a.x, b.z - a.z);
     return { runs: [{ a, b }], label: formatFeetInchesFull(len), valid: len >= 6 };
@@ -148,14 +164,21 @@ export class WallTool implements Tool {
 
   onDown(floor: Vec2 | null): boolean {
     if (!floor) return false;
-    this.a = this.arm.shape === 'circle' ? gridPt(floor) : this.snapA(floor);
+    this.a = this.snapA(floor);
     return true;
   }
 
   onMove(floor: Vec2 | null): void {
     if (!this.a || !floor) return;
-    const b = this.arm.shape === 'line' ? this.snapB(floor) : gridPt(floor);
-    const { runs, label, valid } = this.runsFor(this.a, b);
+    let ra = this.a;
+    let rb: Vec2;
+    if (this.arm.shape === 'line') rb = this.snapB(floor);
+    else {
+      const end = gridPt(floor);
+      if (Math.hypot(end.x - this.a.x, end.z - this.a.z) >= 12) rb = end; // dragging a rect
+      else ({ a: ra, b: rb } = this.rectCorners(this.a)); // click-place at anchor
+    }
+    const { runs, label, valid } = this.runsFor(ra, rb);
     store.setGhost({
       kind: 'wall',
       floor: store.getState().activeFloor,
@@ -169,13 +192,21 @@ export class WallTool implements Tool {
 
   onUp(floor: Vec2 | null): void {
     if (!this.a) return;
-    const b = floor ? (this.arm.shape === 'line' ? this.snapB(floor) : gridPt(floor)) : null;
-    const a = this.a;
+    const anchor = this.a;
     this.a = null;
     store.setGhost(null);
-    if (!b) return;
-    const { runs, valid } = this.runsFor(a, b);
+    if (!floor) return;
+    let ra = anchor;
+    let rb: Vec2;
+    if (this.arm.shape === 'line') rb = this.snapB(floor);
+    else {
+      const end = gridPt(floor);
+      if (Math.hypot(end.x - anchor.x, end.z - anchor.z) >= 12) rb = end;
+      else ({ a: ra, b: rb } = this.rectCorners(anchor));
+    }
+    const { runs, valid } = this.runsFor(ra, rb);
     if (!valid) return; // a bare click never places
+    const b = rb;
     const floorIdx = store.getState().activeFloor;
     store.placeElementsBatch(
       runs.map((r) => ({
@@ -194,8 +225,23 @@ export class WallTool implements Tool {
 
   onHover(floor: Vec2 | null): void {
     if (this.a || !floor) return;
-    // idle hint: show where the run would start
-    const p = this.arm.shape === 'line' ? this.snapA(floor) : gridPt(floor);
+    if (this.arm.shape === 'rect') {
+      // preview the L×W room the next click will drop, at the chosen anchor
+      const { a: ra, b: rb } = this.rectCorners(gridPt(floor));
+      const { runs, label, valid } = this.runsFor(ra, rb);
+      store.setGhost({
+        kind: 'wall',
+        floor: store.getState().activeFloor,
+        runs,
+        heightIn: this.arm.heightIn,
+        thickIn: this.arm.thickIn,
+        valid,
+        label,
+      });
+      return;
+    }
+    // straight: hint where the run would start
+    const p = this.snapA(floor);
     store.setGhost({
       kind: 'wall',
       floor: store.getState().activeFloor,

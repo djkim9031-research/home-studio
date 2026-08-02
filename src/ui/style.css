@@ -1173,3 +1173,26 @@ button.ui-btn.danger:hover {
 .hs-swatch:hover {
   outline: 2px solid var(--brass);
 }
+
+.hs-minimap {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 6;
+  background: var(--ivory);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 8px;
+}
+.hs-mini-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+.hs-minimap canvas {
+  display: block;
+  border-radius: 6px;
+}

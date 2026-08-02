@@ -122,7 +122,7 @@ export function placeElement(el: Omit<PlacedElement, 'id'>): PlacedElement {
   return placed;
 }
 
-/** Place several elements as ONE undo step (rectangle/circle wall runs). */
+/** Place several elements as ONE undo step (a rectangle's four wall runs). */
 export function placeElementsBatch(els: Omit<PlacedElement, 'id'>[]): PlacedElement[] {
   if (!els.length) return [];
   history.push(state.elements);

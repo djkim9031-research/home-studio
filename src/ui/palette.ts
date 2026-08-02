@@ -4,7 +4,7 @@ import { THUMBS } from './thumbnails';
 
 /** What the palette asks main.ts to arm. */
 export type ArmSpec =
-  | { tool: 'wall'; shape: 'line' | 'rect' | 'circle'; heightIn: number; thickIn: number; color: string; textureId: string }
+  | { tool: 'wall'; shape: 'line' | 'rect'; heightIn: number; thickIn: number; color: string; textureId: string; rectLenIn: number; rectWidIn: number; rectAnchor: 'tl' | 'tr' | 'bl' | 'br' | 'center' }
   | { tool: 'opening'; door: boolean; widthIn: number; heightIn: number; sillIn: number; styleId: string; color: string }
   | { tool: 'stair'; widthIn: number; runIn: number; flights: 1 | 2; styleId: string; textureId: string; color: string }
   | { tool: 'fill'; textureId: string; color: string }
@@ -112,16 +112,35 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     const shape = selInput('shape', [
       { id: 'line', label: 'Straight' },
       { id: 'rect', label: 'Rectangle' },
-      { id: 'circle', label: 'Circle' },
+    ]);
+    const len = numInput('L"', 144, 24, 2400);
+    const wid = numInput('W"', 120, 24, 2400);
+    const anchor = selInput('anchor', [
+      { id: 'tl', label: '↘ from top-left' },
+      { id: 'tr', label: '↙ from top-right' },
+      { id: 'bl', label: '↗ from bottom-left' },
+      { id: 'br', label: '↖ from bottom-right' },
+      { id: 'center', label: '✛ centered' },
     ]);
     const h = numInput('H"', DEFAULT_WALL_H, 24, 240);
     const t = numInput('T"', DEFAULT_WALL_T, 2, 24);
     const tex = selInput('finish', WALL_TEXTURES);
     const col = colorInput('#f2eee6');
+    // L/W/anchor only apply to Rectangle; show/hide with the shape
+    const lw = [len.el, wid.el, anchor.el];
+    const syncLW = (): void => {
+      const on = shape.get() === 'rect';
+      for (const el of lw) el.style.display = on ? '' : 'none';
+    };
+    (shape.el.querySelector('select') as HTMLSelectElement).addEventListener('change', syncLW);
+    syncLW();
     byCat.set('walls', [
-      card(THUMBS.wall, 'Wall — drag to draw', [shape.el, h.el, t.el, tex.el, col.el], () => ({
+      card(THUMBS.wall, 'Wall — Straight: drag · Rectangle: set L×W, click to place', [shape.el, len.el, wid.el, anchor.el, h.el, t.el, tex.el, col.el], () => ({
         tool: 'wall',
-        shape: shape.get() as 'line' | 'rect' | 'circle',
+        shape: shape.get() as 'line' | 'rect',
+        rectLenIn: len.get(),
+        rectWidIn: wid.get(),
+        rectAnchor: anchor.get() as 'tl' | 'tr' | 'bl' | 'br' | 'center',
         heightIn: h.get(),
         thickIn: t.get(),
         textureId: tex.get(),

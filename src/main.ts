@@ -19,6 +19,7 @@ import { buildLanding } from './ui/landing';
 import { buildPalette, type ArmSpec } from './ui/palette';
 import { buildPlacedPanel } from './ui/placedPanel';
 import { buildEditPanel } from './ui/editPanel';
+import { buildMinimap } from './ui/minimap';
 import { buildSunPanel, type SunPanelState } from './ui/sunPanel';
 import { buildToolbar, type Toolbar } from './ui/toolbar';
 import { seedRoom, seedTwoFloor } from './data/demoSeeds';
@@ -53,6 +54,7 @@ host.onFrame(() => {
 
 // ---- toast (mirrored to the title for headless QA) -------------------------
 
+const QA = new URLSearchParams(location.hash.replace(/^#/, '')).has('qa');
 let toastEl: HTMLDivElement | null = null;
 let toastTimer = 0;
 function toast(msg: string): void {
@@ -63,7 +65,7 @@ function toast(msg: string): void {
   }
   toastEl.textContent = msg;
   toastEl.classList.add('show');
-  document.title = msg;
+  if (QA) document.title = msg; // headless QA reads status from the title
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toastEl?.classList.remove('show'), 3200);
 }
@@ -144,6 +146,7 @@ const sunPanel = buildSunPanel(editorEl, (s) => host.applySun(sunToInput(s)));
 const palette = buildPalette(editorEl, armFromSpec);
 const placedPanel = buildPlacedPanel(rightCol);
 const editPanel = buildEditPanel(rightCol, toast);
+const minimap = buildMinimap(editorEl, () => store.getState().activeFloor);
 
 // ---- project routing -------------------------------------------------------
 
@@ -210,6 +213,7 @@ function applyFloorVisibility(): void {
 
 function openProject(project: HomeProject): void {
   currentProject = project;
+  if (!QA) document.title = `${project.name} · Home Studio`;
   landing.hide();
   editorEl.style.display = '';
   editorEl.querySelector('.hs-topbar')?.remove();
@@ -217,6 +221,7 @@ function openProject(project: HomeProject): void {
     onBack: () => {
       disarm();
       currentProject = null;
+      if (!QA) document.title = 'Home Studio';
       editorEl.style.display = 'none';
       landing.show();
     },
@@ -243,6 +248,7 @@ store.subscribe((s, ev) => {
     applyFloorVisibility();
     placedPanel.refresh();
     editPanel.refresh();
+    minimap.refresh();
     host.invalidateShadows();
     if (currentProject) {
       currentProject.elements = s.elements;
@@ -274,6 +280,7 @@ store.subscribe((s, ev) => {
     applyFloorVisibility();
     placedPanel.refresh();
     editPanel.refresh();
+    minimap.refresh();
     refreshGrid();
   }
   if (ev.kind === 'settings') refreshGrid();
@@ -387,24 +394,22 @@ if (params.get('qa') === 'shapecard') {
   }, 3000);
 }
 if (params.get('qa') === 'shapes') {
-  // rectangle then circle wall runs via synthetic drags; count the result
+  // rectangle by DIMENSIONS: click (no drag) places an L×W room at the anchor
   setTimeout(() => {
     const fire = (type: string, x: number, y: number): void => {
       viewport.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 5, button: 0, bubbles: true }));
     };
     const before = store.getState().elements.filter((e) => e.kind === 'wall').length;
-    pointer.setTool(new WallTool({ shape: 'rect' }, toolCtx));
-    fire('pointerdown', 500, 420);
-    fire('pointermove', 700, 560);
-    fire('pointerup', 700, 560);
-    const afterRect = store.getState().elements.filter((e) => e.kind === 'wall').length;
-    pointer.setTool(new WallTool({ shape: 'circle' }, toolCtx));
-    fire('pointerdown', 1050, 500);
-    fire('pointermove', 1180, 560);
-    fire('pointerup', 1180, 560);
+    pointer.setTool(new WallTool({ shape: 'rect', rectLenIn: 240, rectWidIn: 144, rectAnchor: 'center' }, toolCtx));
+    fire('pointerdown', 850, 480);
+    fire('pointerup', 850, 480); // no drag → dimension-placed
     setTimeout(() => {
-      const afterCirc = store.getState().elements.filter((e) => e.kind === 'wall').length;
-      document.title = `QASHAPES rect=+${afterRect - before} circle=+${afterCirc - afterRect} undo=${store.canUndo()}`;
+      const rect = store.getState().elements.filter((e) => e.kind === 'wall');
+      const added = rect.slice(before);
+      const dims = added
+        .map((w) => (w.kind === 'wall' ? Math.round(Math.hypot(w.b.x - w.a.x, w.b.z - w.a.z)) : 0))
+        .sort((a, b) => a - b);
+      document.title = `QASHAPES placed=+${added.length} lens=[${dims.join(',')}] (want 4: 144,144,240,240)`;
     }, 500);
   }, 3000);
 }
