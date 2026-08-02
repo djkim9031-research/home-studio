@@ -4,6 +4,8 @@ import type { FloorIndex, HomeProject } from '../types';
 export interface ToolbarActions {
   onBack(): void;
   onExport(): void;
+  onTopView(): void;
+  onDefaultView(): void;
 }
 
 export interface Toolbar {
@@ -58,8 +60,22 @@ export function buildToolbar(root: HTMLElement, project: HomeProject, actions: T
   if (maxFloor >= 2) floorButtons.set(2, btn(gFloor, '3', 'Third floor', () => store.setActiveFloor(2)));
 
   const gView = group();
+  const topBtn = btn(gView, 'Bird’s eye', 'Straight-down plan view (T)', () => {
+    viewMode = 'top';
+    actions.onTopView();
+    refresh();
+  });
+  const perspBtn = btn(gView, '3D', 'Three-quarter perspective view (O)', () => {
+    viewMode = 'persp';
+    actions.onDefaultView();
+    refresh();
+  });
+  let viewMode: 'top' | 'persp' = 'persp';
   const cutBtn = btn(gView, 'Cutaway', 'Lower the walls facing the camera (Sims-style); click for full height', () =>
     store.setCutaway(!store.getState().cutaway),
+  );
+  const gridBtn = btn(gView, 'Grid', 'Show the 1 ft × 1 ft reference grid', () =>
+    store.setSetting('showGrid', !store.getState().settings.showGrid),
   );
 
   const gHist = group();
@@ -71,8 +87,11 @@ export function buildToolbar(root: HTMLElement, project: HomeProject, actions: T
     const s = store.getState();
     buildBtn.classList.toggle('active', s.mode === 'build');
     for (const [f, b] of floorButtons) b.classList.toggle('active', s.activeFloor === f);
+    topBtn.classList.toggle('active', viewMode === 'top');
+    perspBtn.classList.toggle('active', viewMode === 'persp');
     cutBtn.classList.toggle('active', s.cutaway);
     cutBtn.textContent = s.cutaway ? 'Cutaway' : 'Full walls';
+    gridBtn.classList.toggle('active', s.settings.showGrid);
     undoBtn.disabled = !store.canUndo();
     redoBtn.disabled = !store.canRedo();
   };

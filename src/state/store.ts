@@ -6,6 +6,7 @@ export interface Settings {
   gridSnap: boolean;
   angleSnap: boolean;
   showDims: boolean;
+  showGrid: boolean;
 }
 
 /** Transient ghost previews (wall run being dragged, opening sliding on a wall…). */
@@ -41,7 +42,7 @@ const state: AppState = {
   selectedIds: [],
   selectedId: null,
   ghost: null,
-  settings: { gridSnap: true, angleSnap: true, showDims: true },
+  settings: { gridSnap: true, angleSnap: true, showDims: true, showGrid: true },
 };
 
 type Listener = (s: AppState, ev: StoreEvent) => void;

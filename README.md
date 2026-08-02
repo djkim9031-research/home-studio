@@ -32,9 +32,12 @@ real sun that casts real shadows for any date and time you pick.
     wall at full height.
   - **Floors**: up to three stories plus a basement, with a selector to choose
     which one you're building.
+  - **Views**: flip between a bird's-eye plan view and the three-quarter
+    perspective, with a 1 ft × 1 ft reference grid you can toggle.
 - **Real sun and moon** — pick a date and time and watch the light: NOAA solar
-  position, twilight, a phase-correct moon, stars at night, and shadow-mapped
-  sunlight through your window openings.
+  position, twilight, stars at night, shadow-mapped sunlight through your
+  window openings, and a phase-correct moon — including the pale daytime moon
+  whenever it's genuinely above the horizon.
 - **Interior design mode** is on the toolbar but disabled for now — furniture
   arrives in a later pass.
 

@@ -2,6 +2,7 @@ import './ui/style.css';
 import { CameraRig, setCameraWorld, setTargetElevation } from './scene/camera';
 import { createSceneHost } from './scene/host';
 import { buildGround } from './scene/ground';
+import { BuildGrid } from './scene/grid';
 import { CutawayController } from './scene/cutaway';
 import { ElementMeshes } from './scene/elementMeshes';
 import { GhostVisual } from './scene/ghost';
@@ -33,6 +34,7 @@ const rightCol = app.querySelector('[data-k="right"]') as HTMLElement;
 
 const host = createSceneHost(viewport);
 buildGround(host.scene);
+const buildGrid = new BuildGrid(host.scene);
 setCameraWorld({ x: 0, z: 0 }, 300, []);
 const rig = new CameraRig(host.canvas);
 const meshes = new ElementMeshes(host.elementsGroup);
@@ -170,10 +172,20 @@ function elementsBounds(elements: PlacedElement[]): { center: { x: number; z: nu
 }
 
 function fitWorld(frame: boolean): void {
-  const { center, halfSpanIn } = elementsBounds(store.getState().elements);
+  const s = store.getState();
+  const { center, halfSpanIn } = elementsBounds(s.elements);
   setCameraWorld(center, halfSpanIn, []);
   host.setSunWorld(center, halfSpanIn);
+  buildGrid.place(center.x, center.z, floorBaseIn(s.elements, s.activeFloor));
   if (frame) rig.frameContent({ x: i2m(center.x), y: 0, z: i2m(center.z) }, i2m(halfSpanIn));
+}
+
+function refreshGrid(): void {
+  const s = store.getState();
+  buildGrid.setVisible(s.mode === 'build' && s.settings.showGrid);
+  const { center } = elementsBounds(s.elements);
+  buildGrid.place(center.x, center.z, floorBaseIn(s.elements, s.activeFloor));
+  host.invalidate();
 }
 
 /** Floors above the active one hide in build mode so you can see in. */
@@ -202,6 +214,8 @@ function openProject(project: HomeProject): void {
     onExport: () => {
       if (currentProject) exportProject(currentProject);
     },
+    onTopView: () => rig.toTopView(),
+    onDefaultView: () => rig.toDefaultView(),
   });
   store.setActiveFloor(0);
   store.importElements(project.elements);
@@ -249,7 +263,9 @@ store.subscribe((s, ev) => {
     applyFloorVisibility();
     placedPanel.refresh();
     editPanel.refresh();
+    refreshGrid();
   }
+  if (ev.kind === 'settings') refreshGrid();
 });
 
 const landing = buildLanding(app, openProject);
@@ -260,6 +276,9 @@ host.start(rig.camera, (dt) => rig.update(dt));
 
 const params = new URLSearchParams(location.hash.replace(/^#/, ''));
 if (params.get('burn') === '1') host.onFrame(() => true);
+if (params.get('cam') === 'top') {
+  setTimeout(() => rig.toTopView(), 1500);
+}
 if (params.get('cam') === 'flip') {
   // view from the opposite azimuth — cutaway set should mirror
   setTimeout(() => {
@@ -269,12 +288,23 @@ if (params.get('cam') === 'flip') {
     rig.controls.update();
   }, 1500);
 }
+if (params.get('cam') === 'loww') {
+  // steep westward sky view — daytime-moon captures (after seed framing)
+  setTimeout(() => {
+    rig.controls.maxPolarAngle = 2.6;
+    setTargetElevation(24);
+    rig.camera.position.set(26, 2.5, 0);
+    rig.controls.update();
+  }, 1500);
+}
 if (params.get('cam') === 'low') {
   // near-ground view toward the SOUTHERN horizon (sun/moon territory)
-  rig.controls.maxPolarAngle = 2.4;
-  setTargetElevation(14);
-  rig.camera.position.set(0, 2.5, -26);
-  rig.controls.update();
+  setTimeout(() => {
+    rig.controls.maxPolarAngle = 2.4;
+    setTargetElevation(14);
+    rig.camera.position.set(0, 2.5, -26);
+    rig.controls.update();
+  }, 1500);
 }
 {
   // deterministic captures: #sun=YYYY-MM-DD,minutes[,cloudPct] or #sun=off

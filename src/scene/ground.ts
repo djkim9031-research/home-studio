@@ -5,7 +5,7 @@ import * as THREE from 'three';
 export function buildGround(scene: THREE.Scene): void {
   const lawn = new THREE.Mesh(
     new THREE.CircleGeometry(290, 72),
-    new THREE.MeshStandardMaterial({ color: 0xa9b78d, roughness: 0.95, metalness: 0 }),
+    new THREE.MeshStandardMaterial({ color: 0x7da85b, roughness: 0.95, metalness: 0 }),
   );
   lawn.rotation.x = -Math.PI / 2;
   lawn.position.y = -0.02;

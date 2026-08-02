@@ -99,18 +99,19 @@ export function setupLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
     let seed = 0x57a5;
     const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
     g.clearRect(0, 0, 2048, 1024);
-    // suburban sky: a decent scatter overhead, washed out toward the light
-    // dome at the horizon — the faintest stars only survive near the zenith
-    for (let i = 0; i < 1700; i++) {
+    // suburban sky: dense overhead, thinning toward the light dome at the
+    // horizon — but stars reach ALL the way down so low camera angles still
+    // read as a starry night
+    for (let i = 0; i < 2300; i++) {
       const x = rnd() * 2048;
-      const y = rnd() * 690; // hemisphere v: 0 = zenith, ~1024 = horizon rim
-      const highSky = 1 - y / 690;
+      const y = rnd() * 950; // hemisphere v: 0 = zenith, ~1024 = horizon rim
+      const highSky = 1 - y / 950;
       const mag = rnd();
-      if (mag < 0.55 && highSky < 0.45) continue; // faint stars drown low down
+      if (mag < 0.35 && highSky < 0.3) continue; // only the faintest drown low down
       const r = mag < 0.9 ? 0.7 + rnd() * 0.9 : 1.6 + rnd() * 1.5;
       const tint = rnd();
       g.fillStyle = tint < 0.12 ? '#cfe0ff' : tint < 0.2 ? '#ffe9c9' : '#ffffff';
-      g.globalAlpha = (0.3 + mag * 0.7) * (0.45 + 0.55 * highSky);
+      g.globalAlpha = (0.3 + mag * 0.7) * (0.5 + 0.5 * highSky);
       g.beginPath();
       g.arc(x, y, r, 0, Math.PI * 2);
       g.fill();
@@ -152,8 +153,8 @@ export function setupLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
   moonSprite.visible = false;
   scene.add(moonSprite);
   let moonKey = '';
-  const drawMoon = (fraction: number, limbDeg: number): void => {
-    const key = `${fraction.toFixed(3)}|${limbDeg.toFixed(1)}`;
+  const drawMoon = (fraction: number, limbDeg: number, darkAlpha: number): void => {
+    const key = `${fraction.toFixed(3)}|${limbDeg.toFixed(1)}|${darkAlpha.toFixed(2)}`;
     if (key === moonKey) return;
     moonKey = key;
     const g = moonC.getContext('2d')!;
@@ -163,12 +164,16 @@ export function setupLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
     g.translate(128, 128);
     // canonical bright limb at +x, then swing it toward the real sun
     g.rotate((limbDeg - 90) * DEG);
-    g.fillStyle = '#232733';
-    g.globalAlpha = 0.95;
-    g.beginPath();
-    g.arc(0, 0, R, 0, Math.PI * 2);
-    g.fill();
-    g.globalAlpha = 1;
+    // the shadowed side: solid at night, transparent by day (a daytime moon
+    // shows only its lit portion against the sky)
+    if (darkAlpha > 0.02) {
+      g.fillStyle = '#232733';
+      g.globalAlpha = darkAlpha;
+      g.beginPath();
+      g.arc(0, 0, R, 0, Math.PI * 2);
+      g.fill();
+      g.globalAlpha = 1;
+    }
     // lit region: right semicircle closed by the terminator half-ellipse
     const rx = Math.abs(2 * fraction - 1) * R;
     g.fillStyle = '#E9E6DC';
@@ -239,14 +244,14 @@ export function setupLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
     stars.visible = starMat.opacity > 0.02;
     const m = input?.moon;
     if (m && m.altitudeDeg > 0) {
-      drawMoon(m.fraction, m.brightLimbDeg);
+      drawMoon(m.fraction, m.brightLimbDeg, 0.95 * nightF);
       const ma = m.azimuthModelDeg * DEG;
       const mh = m.altitudeDeg * DEG;
       moonSprite.position
         .set(Math.sin(ma) * Math.cos(mh), Math.sin(mh), -Math.cos(ma) * Math.cos(mh))
         .multiplyScalar(232)
         .add(new THREE.Vector3(center.x, 0, center.z));
-      moonMat.opacity = (0.3 + 0.7 * nightF) * (1 - 0.94 * c); // clouds hide the moon
+      moonMat.opacity = (0.6 + 0.4 * nightF) * (1 - 0.94 * c); // clouds hide the moon
       moonSprite.visible = moonMat.opacity > 0.04;
     } else {
       moonSprite.visible = false;
