@@ -124,7 +124,6 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
       { id: 'center', label: '✛ centered' },
     ]);
     const h = numInput('H"', DEFAULT_WALL_H, 24, 240);
-    const t = numInput('T"', DEFAULT_WALL_T, 2, 24);
     const tex = selInput('finish', WALL_TEXTURES);
     const col = colorInput('#f2eee6');
     // rectangle rooms finish inside and outside separately
@@ -144,7 +143,7 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     (shape.el.querySelector('select') as HTMLSelectElement).addEventListener('change', syncLW);
     syncLW();
     byCat.set('walls', [
-      card(THUMBS.wall, 'Wall — Straight: drag · Rectangle: set L×W + inside/outside finish, click to place', [shape.el, len.el, wid.el, anchor.el, h.el, t.el, tex.el, col.el, inTex.el, inCol.el, outTex.el, outCol.el], () => ({
+      card(THUMBS.wall, 'Wall — Straight: drag · Rectangle: set L×W + inside/outside finish, click to place', [shape.el, len.el, wid.el, anchor.el, h.el, tex.el, col.el, inTex.el, inCol.el, outTex.el, outCol.el], () => ({
         tool: 'wall',
         shape: shape.get() as 'line' | 'rect',
         rectLenIn: len.get(),
@@ -153,7 +152,7 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
         rectInside: { textureId: inTex.get(), color: inCol.get() },
         rectOutside: { textureId: outTex.get(), color: outCol.get() },
         heightIn: h.get(),
-        thickIn: t.get(),
+        thickIn: DEFAULT_WALL_T,
         // a rectangle's base finish (wall top) tracks its outside finish
         textureId: shape.get() === 'rect' ? outTex.get() : tex.get(),
         color: shape.get() === 'rect' ? outCol.get() : col.get(),

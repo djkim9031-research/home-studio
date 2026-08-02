@@ -334,29 +334,46 @@ button.ui-btn.danger:hover {
 }
 
 .sun-loc {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
+  margin-top: 2px;
+  padding: 7px 8px;
+  background: rgba(191, 158, 106, 0.08);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
 }
 
-.sun-loc-lbl {
+.sun-loc-field {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 3px;
-  flex: 1;
-  font-size: 10px;
-  color: #8d8478;
-  white-space: nowrap;
+  min-width: 0;
+}
+
+.sun-loc-field span {
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #a6947a;
 }
 
 .sun-num {
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   border: 1px solid var(--hairline);
   border-radius: 6px;
-  padding: 3px 4px;
+  padding: 4px 5px;
   background: #fff;
   color: var(--ink);
   min-width: 0;
   width: 100%;
+  text-align: center;
+}
+
+.sun-num:focus {
+  outline: none;
+  border-color: var(--brass);
 }
 
 /* orbit compass, bottom-right of the viewport */

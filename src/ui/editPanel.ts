@@ -116,16 +116,6 @@ export function buildEditPanel(root: HTMLElement, toast: (msg: string) => void):
             patch({ heightIn: v });
           }),
         );
-        body.appendChild(
-          numRow('Thickness (in)', el.thickIn, (v) => {
-            if (v < 2 || v > 24) {
-              toast('Wall thickness must be 2–24 inches.');
-              refresh();
-              return;
-            }
-            patch({ thickIn: v });
-          }),
-        );
         body.appendChild(selRow('Finish', WALL_TEXTURES, el.textureId, (v) => patch({ textureId: v })));
         body.appendChild(colorRow(el.color, (v) => patch({ color: v })));
         break;

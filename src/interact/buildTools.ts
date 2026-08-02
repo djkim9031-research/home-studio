@@ -99,16 +99,23 @@ function wallsOn(floor: FloorIndex): Wall[] {
 function weld(p: Vec2, floor: FloorIndex, extra?: Vec2 | null): Vec2 | null {
   let best: Vec2 | null = null;
   let bestD = SNAP.weld;
-  const consider = (q: Vec2): void => {
-    const d = Math.hypot(q.x - p.x, q.z - p.z);
+  const consider = (q: Vec2, bias = 0): void => {
+    const d = Math.hypot(q.x - p.x, q.z - p.z) + bias;
     if (d < bestD) {
       bestD = d;
       best = q;
     }
   };
   for (const w of wallsOn(floor)) {
+    // endpoints win first (corner welds); then the nearest point on the run so a
+    // new wall drawn near an existing one magnets flush onto it (a T-join)
     consider(w.a);
     consider(w.b);
+    const dx = w.b.x - w.a.x;
+    const dz = w.b.z - w.a.z;
+    const len2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((p.x - w.a.x) * dx + (p.z - w.a.z) * dz) / len2));
+    consider({ x: w.a.x + dx * t, z: w.a.z + dz * t }, 1.5); // slight bias: endpoints preferred
   }
   if (extra) consider(extra);
   return best;

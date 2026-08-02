@@ -83,10 +83,10 @@ export function buildSunPanel(
       </div>
       <input type="range" data-k="slider" min="0" max="1439" step="5" class="sun-slider" title="Time of day">
       <div class="sun-info" data-k="info"></div>
-      <div class="sun-row sun-loc" title="Site location — drives the sun & moon position, rise/set and phase">
-        <label class="sun-loc-lbl">lat<input type="number" data-k="lat" class="sun-num" step="0.01" min="-90" max="90"></label>
-        <label class="sun-loc-lbl">lon<input type="number" data-k="lon" class="sun-num" step="0.01" min="-180" max="180"></label>
-        <label class="sun-loc-lbl">elev m<input type="number" data-k="elev" class="sun-num" step="10" min="0" max="9000"></label>
+      <div class="sun-loc" title="Site location — drives the sun & moon position, rise/set and phase">
+        <label class="sun-loc-field"><span>Latitude</span><input type="number" data-k="lat" class="sun-num" step="0.01" min="-90" max="90"></label>
+        <label class="sun-loc-field"><span>Longitude</span><input type="number" data-k="lon" class="sun-num" step="0.01" min="-180" max="180"></label>
+        <label class="sun-loc-field"><span>Elev · m</span><input type="number" data-k="elev" class="sun-num" step="10" min="0" max="9000"></label>
       </div>
       <div class="sun-row">
         <label class="sun-toggle"><input type="checkbox" data-k="clouds"> clouds</label>
