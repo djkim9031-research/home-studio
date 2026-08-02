@@ -1,4 +1,5 @@
 import { DEFAULT_DOOR, DEFAULT_STAIR, DEFAULT_WALL_H, DEFAULT_WALL_T, DEFAULT_WINDOW, SNAP } from '../constants';
+import { formatFeetInchesFull } from '../core/format';
 import { fillRegion } from '../core/regionFill';
 import { clampOpeningCenter, openingFits, projectOnWall, wallLen } from '../core/validity';
 import * as store from '../state/store';
@@ -53,7 +54,10 @@ function weld(p: Vec2, floor: FloorIndex, extra?: Vec2 | null): Vec2 | null {
 // Wall drawing: drag A→B, chained; endpoint weld > angle snap > grid.
 // ---------------------------------------------------------------------------
 
+export type WallShape = 'line' | 'rect' | 'circle';
+
 export interface WallArm {
+  shape: WallShape;
   heightIn: number;
   thickIn: number;
   color: string;
@@ -68,12 +72,48 @@ export class WallTool implements Tool {
 
   constructor(arm: Partial<WallArm>, ctx: ToolContext) {
     this.arm = {
+      shape: arm.shape ?? 'line',
       heightIn: arm.heightIn ?? DEFAULT_WALL_H,
       thickIn: arm.thickIn ?? DEFAULT_WALL_T,
       color: arm.color ?? '#f2eee6',
       textureId: arm.textureId ?? 'paint',
     };
     this.ctx = ctx;
+  }
+
+  /** The wall runs the current drag describes, plus a chip label. */
+  private runsFor(a: Vec2, b: Vec2): { runs: { a: Vec2; b: Vec2 }[]; label: string; valid: boolean } {
+    if (this.arm.shape === 'rect') {
+      const w = Math.abs(b.x - a.x);
+      const d = Math.abs(b.z - a.z);
+      const c0 = { x: Math.min(a.x, b.x), z: Math.min(a.z, b.z) };
+      const c1 = { x: c0.x + w, z: c0.z };
+      const c2 = { x: c0.x + w, z: c0.z + d };
+      const c3 = { x: c0.x, z: c0.z + d };
+      return {
+        runs: [
+          { a: c0, b: c1 },
+          { a: c1, b: c2 },
+          { a: c2, b: c3 },
+          { a: c3, b: c0 },
+        ],
+        label: `${formatFeetInchesFull(w)} × ${formatFeetInchesFull(d)}`,
+        valid: w >= 24 && d >= 24,
+      };
+    }
+    if (this.arm.shape === 'circle') {
+      const r = Math.hypot(b.x - a.x, b.z - a.z);
+      const n = Math.min(48, Math.max(12, Math.round((2 * Math.PI * r) / 24)));
+      const runs: { a: Vec2; b: Vec2 }[] = [];
+      const pt = (k: number): Vec2 => ({
+        x: Math.round(a.x + Math.cos((k / n) * 2 * Math.PI) * r),
+        z: Math.round(a.z + Math.sin((k / n) * 2 * Math.PI) * r),
+      });
+      for (let k = 0; k < n; k++) runs.push({ a: pt(k), b: pt(k + 1) });
+      return { runs, label: `r ${formatFeetInchesFull(r)}`, valid: r >= 24 };
+    }
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    return { runs: [{ a, b }], label: formatFeetInchesFull(len), valid: len >= 6 };
   }
 
   private snapA(p: Vec2): Vec2 {
@@ -103,59 +143,62 @@ export class WallTool implements Tool {
 
   onDown(floor: Vec2 | null): boolean {
     if (!floor) return false;
-    this.a = this.snapA(floor);
+    this.a = this.arm.shape === 'circle' ? gridPt(floor) : this.snapA(floor);
     return true;
   }
 
   onMove(floor: Vec2 | null): void {
     if (!this.a || !floor) return;
-    const b = this.snapB(floor);
-    const len = Math.hypot(b.x - this.a.x, b.z - this.a.z);
+    const b = this.arm.shape === 'line' ? this.snapB(floor) : gridPt(floor);
+    const { runs, label, valid } = this.runsFor(this.a, b);
     store.setGhost({
       kind: 'wall',
       floor: store.getState().activeFloor,
-      a: this.a,
-      b,
+      runs,
       heightIn: this.arm.heightIn,
       thickIn: this.arm.thickIn,
-      valid: len >= 6,
+      valid,
+      label,
     });
   }
 
   onUp(floor: Vec2 | null): void {
     if (!this.a) return;
-    const b = floor ? this.snapB(floor) : null;
+    const b = floor ? (this.arm.shape === 'line' ? this.snapB(floor) : gridPt(floor)) : null;
     const a = this.a;
     this.a = null;
     store.setGhost(null);
     if (!b) return;
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
-    if (len < 6) return; // a bare click never places
-    store.placeElement({
-      kind: 'wall',
-      floor: store.getState().activeFloor,
-      a,
-      b,
-      heightIn: this.arm.heightIn,
-      thickIn: this.arm.thickIn,
-      color: this.arm.color,
-      textureId: this.arm.textureId,
-    } as Omit<PlacedElement, 'id'>);
-    this.lastB = b; // chain: next segment starts here
+    const { runs, valid } = this.runsFor(a, b);
+    if (!valid) return; // a bare click never places
+    const floorIdx = store.getState().activeFloor;
+    store.placeElementsBatch(
+      runs.map((r) => ({
+        kind: 'wall' as const,
+        floor: floorIdx,
+        a: r.a,
+        b: r.b,
+        heightIn: this.arm.heightIn,
+        thickIn: this.arm.thickIn,
+        color: this.arm.color,
+        textureId: this.arm.textureId,
+      })),
+    );
+    if (this.arm.shape === 'line') this.lastB = b; // chain: next segment starts here
   }
 
   onHover(floor: Vec2 | null): void {
     if (this.a || !floor) return;
     // idle hint: show where the run would start
-    const p = this.snapA(floor);
+    const p = this.arm.shape === 'line' ? this.snapA(floor) : gridPt(floor);
     store.setGhost({
       kind: 'wall',
       floor: store.getState().activeFloor,
-      a: p,
-      b: { x: p.x + 0.1, z: p.z },
+      runs: [{ a: p, b: { x: p.x + 0.1, z: p.z } }],
       heightIn: this.arm.heightIn,
       thickIn: this.arm.thickIn,
       valid: true,
+      label: '',
     });
   }
 
@@ -428,6 +471,59 @@ export class FloorFillTool implements Tool {
       color: this.arm.color,
     } as Omit<PlacedElement, 'id'>);
     this.ctx.toast('Floor placed.');
+  }
+
+  onHover(): void {}
+
+  cancel(): void {
+    store.setGhost(null);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Room labeling: click inside an enclosed area, name it; sqft comes free.
+// ---------------------------------------------------------------------------
+
+export class RoomTool implements Tool {
+  private ctx: ToolContext;
+  private downAt: { x: number; y: number } | null = null;
+
+  constructor(ctx: ToolContext) {
+    this.ctx = ctx;
+  }
+
+  onDown(_floor: Vec2 | null, ev: PointerEvent): boolean {
+    this.downAt = { x: ev.clientX, y: ev.clientY };
+    return true;
+  }
+
+  onMove(): void {}
+
+  onUp(floor: Vec2 | null, ev: PointerEvent): void {
+    const down = this.downAt;
+    this.downAt = null;
+    if (!floor || !down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
+    const s = store.getState();
+    const res = fillRegion(s.elements, s.activeFloor, floor);
+    if (!res.ok) {
+      this.ctx.toast(
+        res.reason === 'no-walls'
+          ? 'Draw some walls first — rooms live inside walls.'
+          : "That area isn't enclosed by walls yet.",
+      );
+      return;
+    }
+    const count = s.elements.filter((e) => e.kind === 'room').length;
+    const name = (prompt('Room name:', `Room ${count + 1}`) ?? '').trim();
+    if (!name) return;
+    store.placeElement({
+      kind: 'room',
+      floor: s.activeFloor,
+      polygon: res.polygon,
+      name,
+      color: '#b08d57',
+    } as Omit<PlacedElement, 'id'>);
+    this.ctx.toast(`“${name}” labeled.`);
   }
 
   onHover(): void {}

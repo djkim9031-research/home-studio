@@ -1,7 +1,7 @@
 import { wallDir, wallLen } from '../core/validity';
 import { DOOR_STYLES, FLOOR_TEXTURES, STAIR_STYLES, WALL_TEXTURES, WINDOW_STYLES, type FinishDef, type StyleDef } from '../data/registry';
 import * as store from '../state/store';
-import type { PlacedElement, Wall } from '../types';
+import { polygonSqft, type PlacedElement, type Wall } from '../types';
 
 export interface EditPanel {
   refresh(): void;
@@ -67,7 +67,7 @@ export function buildEditPanel(root: HTMLElement, toast: (msg: string) => void):
     }
     panel.style.display = '';
     panel.innerHTML = `<div class="items-head"><span>${
-      { wall: 'Wall', door: 'Door', window: 'Window', stair: 'Stair', slab: 'Floor' }[el.kind]
+      { wall: 'Wall', door: 'Door', window: 'Window', stair: 'Stair', slab: 'Floor', room: 'Room' }[el.kind]
     }</span></div>`;
     const body = document.createElement('div');
     body.className = 'hs-edit-body';
@@ -183,6 +183,31 @@ export function buildEditPanel(root: HTMLElement, toast: (msg: string) => void):
       case 'slab': {
         body.appendChild(selRow('Finish', FLOOR_TEXTURES, el.textureId, (v) => patch({ textureId: v })));
         body.appendChild(colorRow(el.color, (v) => patch({ color: v })));
+        break;
+      }
+      case 'room': {
+        const row = document.createElement('label');
+        row.className = 'hs-edit-row';
+        row.innerHTML = `<span>Name</span>`;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = el.name;
+        input.maxLength = 40;
+        input.addEventListener('change', () => {
+          const v = input.value.trim();
+          if (!v) {
+            toast('A room needs a name.');
+            refresh();
+            return;
+          }
+          patch({ name: v });
+        });
+        row.appendChild(input);
+        body.appendChild(row);
+        const area = document.createElement('div');
+        area.className = 'hs-edit-row';
+        area.innerHTML = `<span>Area</span><span>${Math.round(polygonSqft(el.polygon))} ft² (${polygonSqft(el.polygon).toFixed(1)})</span>`;
+        body.appendChild(area);
         break;
       }
     }

@@ -10,7 +10,7 @@ export interface Settings {
 
 /** Transient ghost previews (wall run being dragged, opening sliding on a wall…). */
 export type GhostState =
-  | { kind: 'wall'; floor: FloorIndex; a: Vec2; b: Vec2; heightIn: number; thickIn: number; valid: boolean }
+  | { kind: 'wall'; floor: FloorIndex; runs: { a: Vec2; b: Vec2 }[]; heightIn: number; thickIn: number; valid: boolean; label: string }
   | { kind: 'opening'; wallId: string; centerIn: number; widthIn: number; heightIn: number; sillIn: number; door: boolean; valid: boolean }
   | { kind: 'stair'; floor: FloorIndex; x: number; z: number; yawDeg: number; widthIn: number; runIn: number; flights: 1 | 2; valid: boolean }
   | { kind: 'region'; floor: FloorIndex; polygon: Vec2[]; valid: boolean };
@@ -118,6 +118,16 @@ export function placeElement(el: Omit<PlacedElement, 'id'>): PlacedElement {
   const placed = { ...el, id: uid() } as PlacedElement;
   state.elements = [...state.elements, placed];
   emit({ kind: 'items', changedIds: [placed.id] });
+  return placed;
+}
+
+/** Place several elements as ONE undo step (rectangle/circle wall runs). */
+export function placeElementsBatch(els: Omit<PlacedElement, 'id'>[]): PlacedElement[] {
+  if (!els.length) return [];
+  history.push(state.elements);
+  const placed = els.map((el) => ({ ...el, id: uid() }) as PlacedElement);
+  state.elements = [...state.elements, ...placed];
+  emit({ kind: 'items', changedIds: placed.map((p) => p.id) });
   return placed;
 }
 

@@ -48,15 +48,25 @@ export class GhostVisual {
     const mat = ghost.valid ? this.validMat : this.invalidMat;
 
     if (ghost.kind === 'wall') {
-      const len = Math.hypot(ghost.b.x - ghost.a.x, ghost.b.z - ghost.a.z);
-      if (len < 0.5) return;
       const baseY = floorBaseIn(elements, ghost.floor);
-      const geo = new THREE.BoxGeometry(i2m(len), i2m(ghost.heightIn), i2m(ghost.thickIn));
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(i2m((ghost.a.x + ghost.b.x) / 2), i2m(baseY + ghost.heightIn / 2), i2m((ghost.a.z + ghost.b.z) / 2));
-      mesh.rotation.y = -Math.atan2(ghost.b.z - ghost.a.z, ghost.b.x - ghost.a.x);
-      this.group.add(mesh);
-      this.showChip(this.lenChip, formatFeetInchesFull(len), (ghost.a.x + ghost.b.x) / 2, baseY + ghost.heightIn + 8, (ghost.a.z + ghost.b.z) / 2);
+      let cx = 0;
+      let cz = 0;
+      let count = 0;
+      for (const run of ghost.runs) {
+        const len = Math.hypot(run.b.x - run.a.x, run.b.z - run.a.z);
+        if (len < 0.5) continue;
+        const geo = new THREE.BoxGeometry(i2m(len), i2m(ghost.heightIn), i2m(ghost.thickIn));
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(i2m((run.a.x + run.b.x) / 2), i2m(baseY + ghost.heightIn / 2), i2m((run.a.z + run.b.z) / 2));
+        mesh.rotation.y = -Math.atan2(run.b.z - run.a.z, run.b.x - run.a.x);
+        this.group.add(mesh);
+        cx += (run.a.x + run.b.x) / 2;
+        cz += (run.a.z + run.b.z) / 2;
+        count += 1;
+      }
+      if (ghost.label && count) {
+        this.showChip(this.lenChip, ghost.label, cx / count, baseY + ghost.heightIn + 8, cz / count);
+      }
       return;
     }
 

@@ -1148,3 +1148,12 @@ button.ui-btn.danger:hover {
   padding: 1px;
   background: #fffdf8;
 }
+
+.room-chip {
+  background: rgba(250, 246, 240, 0.94);
+  border: 1.5px solid var(--brass);
+  color: var(--ink);
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 14px;
+}

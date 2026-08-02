@@ -4,10 +4,11 @@ import { THUMBS } from './thumbnails';
 
 /** What the palette asks main.ts to arm. */
 export type ArmSpec =
-  | { tool: 'wall'; heightIn: number; thickIn: number; color: string; textureId: string }
+  | { tool: 'wall'; shape: 'line' | 'rect' | 'circle'; heightIn: number; thickIn: number; color: string; textureId: string }
   | { tool: 'opening'; door: boolean; widthIn: number; heightIn: number; sillIn: number; styleId: string; color: string }
   | { tool: 'stair'; widthIn: number; runIn: number; flights: 1 | 2; styleId: string; textureId: string; color: string }
-  | { tool: 'fill'; textureId: string; color: string };
+  | { tool: 'fill'; textureId: string; color: string }
+  | { tool: 'room' };
 
 export interface Palette {
   /** un-highlight every card (tool disarmed) */
@@ -24,6 +25,7 @@ const CATS: { key: string; label: string }[] = [
   { key: 'openings', label: 'Doors & Windows' },
   { key: 'stairs', label: 'Stairs' },
   { key: 'flooring', label: 'Flooring' },
+  { key: 'rooms', label: 'Rooms' },
 ];
 
 export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTMLElement) => void): Palette {
@@ -100,13 +102,19 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
   const byCat = new Map<string, CardCtl[]>();
 
   {
+    const shape = selInput('shape', [
+      { id: 'line', label: 'Straight' },
+      { id: 'rect', label: 'Rectangle' },
+      { id: 'circle', label: 'Circle' },
+    ]);
     const h = numInput('H"', DEFAULT_WALL_H, 24, 240);
     const t = numInput('T"', DEFAULT_WALL_T, 2, 24);
     const tex = selInput('finish', WALL_TEXTURES);
     const col = colorInput('#f2eee6');
     byCat.set('walls', [
-      card(THUMBS.wall, 'Wall — drag to draw', [h.el, t.el, tex.el, col.el], () => ({
+      card(THUMBS.wall, 'Wall — drag to draw', [shape.el, h.el, t.el, tex.el, col.el], () => ({
         tool: 'wall',
+        shape: shape.get() as 'line' | 'rect' | 'circle',
         heightIn: h.get(),
         thickIn: t.get(),
         textureId: tex.get(),
@@ -180,6 +188,10 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
       })),
     ]);
   }
+
+  byCat.set('rooms', [
+    card(THUMBS.room, 'Room label — click inside walls', [], () => ({ tool: 'room' })),
+  ]);
 
   // ---- tabs ----------------------------------------------------------------
 

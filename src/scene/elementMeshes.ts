@@ -1,8 +1,19 @@
 import * as THREE from 'three';
+import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { COLORS, i2m, IN, JOIST_T } from '../constants';
 import { finishMaterial, finishRepeatPerIn } from '../data/registry';
 import { openingsOf, wallDir, wallLen, wallPointAt } from '../core/validity';
-import { floorBaseIn, storyHeightIn, type FloorSlab, type Opening, type PlacedElement, type Stair, type Wall } from '../types';
+import {
+  floorBaseIn,
+  polygonSqft,
+  storyHeightIn,
+  type FloorSlab,
+  type Opening,
+  type PlacedElement,
+  type Room,
+  type Stair,
+  type Wall,
+} from '../types';
 
 /** Everything the cutaway/highlight controllers need about one element's mesh. */
 interface Entry {
@@ -118,6 +129,9 @@ function buildKey(e: PlacedElement, elements: PlacedElement[]): string {
 
 function disposeGroup(g: THREE.Group): void {
   g.traverse((o) => {
+    // CSS2D labels leave DOM behind unless removed explicitly
+    const css = o as CSS2DObject;
+    if ((css as { isCSS2DObject?: boolean }).isCSS2DObject) css.element.remove();
     const m = o as THREE.Mesh;
     if (m.isMesh || (o as THREE.LineSegments).isLineSegments) {
       m.geometry?.dispose();
@@ -142,7 +156,30 @@ function buildElement(e: PlacedElement, elements: PlacedElement[]): { group: THR
       return buildStair(e, elements);
     case 'slab':
       return buildSlab(e, elements);
+    case 'room':
+      return buildRoomLabel(e, elements);
   }
+}
+
+function buildRoomLabel(room: Room, elements: PlacedElement[]): { group: THREE.Group; clipMats: THREE.Material[] } {
+  const group = new THREE.Group();
+  const baseY = floorBaseIn(elements, room.floor);
+  let cx = 0;
+  let cz = 0;
+  for (const p of room.polygon) {
+    cx += p.x;
+    cz += p.z;
+  }
+  cx /= room.polygon.length;
+  cz /= room.polygon.length;
+  const el = document.createElement('div');
+  el.className = 'chip room-chip';
+  el.textContent = `${room.name} · ${Math.round(polygonSqft(room.polygon))} ft²`;
+  const label = new CSS2DObject(el);
+  label.center.set(0.5, 0.5);
+  label.position.set(i2m(cx), i2m(baseY + 40), i2m(cz));
+  group.add(label);
+  return { group, clipMats: [] };
 }
 
 function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group; clipMats: THREE.Material[] } {

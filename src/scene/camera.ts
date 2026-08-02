@@ -68,8 +68,8 @@ export class CameraRig {
     this.canvas = canvas;
     // tight near/far: low-precision depth buffers (Firefox on Tegra gets one)
     // z-fight badly with a sloppy range
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.35, 320);
-    this.camera.position.set(ROOM_CENTER.x + DEFAULT_DIST * 0.55, DEFAULT_DIST * 0.85, ROOM_CENTER.z + DEFAULT_DIST * 0.9);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.35, 340);
+    this.camera.position.set(ROOM_CENTER.x + DEFAULT_DIST * 0.18, DEFAULT_DIST * 0.6, ROOM_CENTER.z + DEFAULT_DIST * 1.02);
 
     this.controls = new OrbitControls(this.camera, canvas);
     const c = this.controls;
@@ -96,11 +96,12 @@ export class CameraRig {
     });
   }
 
-  /** Frame the camera on freshly loaded content (meters). */
+  /** Frame the camera on freshly loaded content (meters) — the same low 3/4
+   * vantage the wedding planner opens with. */
   frameContent(center: { x: number; y: number; z: number }, halfSpanM: number): void {
     if (this.mode === 'stand') this.exitStand();
-    const d = Math.max(6, halfSpanM * 2.2);
-    this.camera.position.set(center.x + d * 0.55, d * 0.85, center.z + d * 0.9);
+    const d = Math.max(7, halfSpanM * 1.9);
+    this.camera.position.set(center.x + d * 0.18, TARGET_Y + d * 0.6, center.z + d * 1.02);
     this.controls.target.set(center.x, TARGET_Y, center.z);
     this.controls.update();
   }
@@ -129,9 +130,9 @@ export class CameraRig {
     if (this.mode === 'stand') this.exitStand();
     this.startTween(
       new THREE.Vector3(
-        ROOM_CENTER.x + DEFAULT_DIST * 0.55,
-        TARGET_Y + DEFAULT_DIST * 0.85,
-        ROOM_CENTER.z + DEFAULT_DIST * 0.9,
+        ROOM_CENTER.x + DEFAULT_DIST * 0.18,
+        TARGET_Y + DEFAULT_DIST * 0.6,
+        ROOM_CENTER.z + DEFAULT_DIST * 1.02,
       ),
       ROOM_CENTER.clone(),
       350,

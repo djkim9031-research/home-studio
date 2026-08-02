@@ -39,7 +39,9 @@ export function setupLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
   const center = new THREE.Vector3(0, 0, 0);
   const mobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 
-  const fog = new THREE.Fog(0xe8eef2, 80, 300);
+  // horizon: the lawn runs past the fog's far plane, so ground fades into the
+  // sky color instead of ending in a visible disc edge
+  const fog = new THREE.Fog(0xe8eef2, 70, 260);
   scene.fog = fog;
   const bg = new THREE.Color(0xdfe9f0);
   scene.background = bg;

@@ -1,7 +1,7 @@
 import { formatFeetInches } from '../core/format';
 import { wallLen } from '../core/validity';
 import * as store from '../state/store';
-import { categoryOf, MODE_CATEGORIES, type BuildCategory, type PlacedElement } from '../types';
+import { categoryOf, MODE_CATEGORIES, polygonSqft, type BuildCategory, type PlacedElement } from '../types';
 
 export interface PlacedPanel {
   refresh(): void;
@@ -12,6 +12,7 @@ const CAT_LABELS: Record<BuildCategory, string> = {
   openings: 'Doors & Windows',
   stairs: 'Stairs',
   flooring: 'Flooring',
+  rooms: 'Rooms',
 };
 
 const FLOOR_TAG: Record<number, string> = { [-1]: 'B', 0: 'G', 1: '2', 2: '3' };
@@ -28,6 +29,8 @@ function rowLabel(e: PlacedElement, n: number): string {
       return `Stair ${n} · ${e.flights === 2 ? 'U-turn' : 'straight'}`;
     case 'slab':
       return `Floor ${n}`;
+    case 'room':
+      return `${e.name} · ${Math.round(polygonSqft(e.polygon))} ft²`;
   }
 }
 

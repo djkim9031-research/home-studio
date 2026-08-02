@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 
-/** A soft green lot for the home to sit on. */
+/** A soft green lot for the home to sit on — wide enough that the ground runs
+ * past the fog and meets the sky at the horizon (no visible disc edge). */
 export function buildGround(scene: THREE.Scene): void {
   const lawn = new THREE.Mesh(
-    new THREE.CircleGeometry(60, 64),
+    new THREE.CircleGeometry(290, 72),
     new THREE.MeshStandardMaterial({ color: 0xa9b78d, roughness: 0.95, metalness: 0 }),
   );
   lawn.rotation.x = -Math.PI / 2;

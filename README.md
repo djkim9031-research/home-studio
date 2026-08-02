@@ -13,10 +13,10 @@ real sun that casts real shadows for any date and time you pick.
   count). Everything autosaves in your browser, and any home exports to a JSON
   file you can import on another machine.
 - **House build mode**
-  - **Walls**: pick height and thickness, then drag to draw. Runs chain
-    end-to-end, snap to 15° bearings (square angles win), and weld to existing
-    endpoints. Paint any RGB color over a finish — paint, plaster, brick, or
-    wood panel.
+  - **Walls**: pick height and thickness, then drag to draw — straight runs
+    that chain end-to-end, or whole rectangles and circles in one drag. Snaps
+    to 15° bearings (square angles win) and welds to existing endpoints. Paint
+    any RGB color over a finish — paint, plaster, brick, or wood panel.
   - **Doors & windows**: set the size (windows take a sill height too), then
     slide along any wall — the distance from each end of the wall reads out
     live so you can hit the measurement you want. Depth always matches the
@@ -25,6 +25,8 @@ real sun that casts real shadows for any date and time you pick.
     tread finish and color. They connect the floor you're on to the one above.
   - **Flooring**: once walls enclose an area, one click floors the whole room —
     oak, tile, carpet, or concrete, tinted any color.
+  - **Rooms**: click inside an enclosed area to name it; the label floats in
+    the room with its square footage and can be renamed any time.
   - **Cutaway walls**: the walls between you and the room drop to sill height
     while the far ones stand, exactly like the sims games; a toggle keeps every
     wall at full height.

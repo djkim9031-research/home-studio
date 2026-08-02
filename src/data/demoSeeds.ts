@@ -46,6 +46,19 @@ export function seedRoom(): HomeProject {
       textureId: 'oakPlank',
       color: '#ffffff',
     },
+    {
+      kind: 'room',
+      id: id(),
+      floor: 0,
+      polygon: [
+        { x: 3, z: 3 },
+        { x: 189, z: 3 },
+        { x: 189, z: 141 },
+        { x: 3, z: 141 },
+      ],
+      name: 'Living room',
+      color: '#b08d57',
+    },
   ];
   return p;
 }

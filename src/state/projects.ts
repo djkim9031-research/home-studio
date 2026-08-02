@@ -5,6 +5,7 @@ import type {
   Opening,
   PlacedElement,
   ProjectFile,
+  Room,
   Stair,
   Vec2,
   Wall,
@@ -59,6 +60,10 @@ export function isValidElement(v: unknown): v is PlacedElement {
     case 'slab': {
       const s = o as FloorSlab;
       return Array.isArray(s.polygon) && s.polygon.length >= 3 && s.polygon.every(isVec2) && str(s.textureId);
+    }
+    case 'room': {
+      const r = o as Room;
+      return Array.isArray(r.polygon) && r.polygon.length >= 3 && r.polygon.every(isVec2) && str(r.name);
     }
     default:
       return false;

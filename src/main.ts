@@ -9,7 +9,7 @@ import { moonState, sunPosition } from './scene/sun';
 import { i2m } from './constants';
 import * as store from './state/store';
 import { exportProject, getProject, listProjects, saveProject } from './state/projects';
-import { FloorFillTool, OpeningTool, SelectTool, StairTool, WallTool, type Tool, type ToolContext } from './interact/buildTools';
+import { FloorFillTool, OpeningTool, RoomTool, SelectTool, StairTool, WallTool, type Tool, type ToolContext } from './interact/buildTools';
 import { PointerController } from './interact/pointer';
 import { installKeyboard } from './interact/keyboard';
 import { buildLanding } from './ui/landing';
@@ -97,6 +97,9 @@ function armFromSpec(spec: ArmSpec, card: HTMLElement): void {
       break;
     case 'fill':
       tool = new FloorFillTool(spec, toolCtx);
+      break;
+    case 'room':
+      tool = new RoomTool(toolCtx);
       break;
   }
   pointer.setTool(tool);
@@ -318,6 +321,28 @@ if (params.get('qa') === 'hoverwin') {
     viewport.dispatchEvent(
       new PointerEvent('pointermove', { clientX: 840, clientY: 470, pointerId: 9, bubbles: true }),
     );
+  }, 3000);
+}
+if (params.get('qa') === 'shapes') {
+  // rectangle then circle wall runs via synthetic drags; count the result
+  setTimeout(() => {
+    const fire = (type: string, x: number, y: number): void => {
+      viewport.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 5, button: 0, bubbles: true }));
+    };
+    const before = store.getState().elements.filter((e) => e.kind === 'wall').length;
+    pointer.setTool(new WallTool({ shape: 'rect' }, toolCtx));
+    fire('pointerdown', 500, 420);
+    fire('pointermove', 700, 560);
+    fire('pointerup', 700, 560);
+    const afterRect = store.getState().elements.filter((e) => e.kind === 'wall').length;
+    pointer.setTool(new WallTool({ shape: 'circle' }, toolCtx));
+    fire('pointerdown', 1050, 500);
+    fire('pointermove', 1180, 560);
+    fire('pointerup', 1180, 560);
+    setTimeout(() => {
+      const afterCirc = store.getState().elements.filter((e) => e.kind === 'wall').length;
+      document.title = `QASHAPES rect=+${afterRect - before} circle=+${afterCirc - afterRect} undo=${store.canUndo()}`;
+    }, 500);
   }, 3000);
 }
 if (params.get('qa') === 'select') {

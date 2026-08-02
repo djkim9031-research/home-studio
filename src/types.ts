@@ -13,7 +13,7 @@ export interface Pose {
 
 export type FloorIndex = -1 | 0 | 1 | 2; // -1 = basement, 0 = ground
 export type Mode = 'build' | 'interior';
-export type BuildCategory = 'walls' | 'openings' | 'stairs' | 'flooring';
+export type BuildCategory = 'walls' | 'openings' | 'stairs' | 'flooring' | 'rooms';
 
 interface ElementBase {
   id: string;
@@ -64,16 +64,42 @@ export interface FloorSlab extends ElementBase {
   textureId: string; // floor-texture registry id
 }
 
-export type PlacedElement = Wall | Opening | Stair | FloorSlab;
+/** A named enclosed region — the label + square footage live here. */
+export interface Room extends ElementBase {
+  kind: 'room';
+  polygon: Vec2[];
+  name: string;
+}
+
+export type PlacedElement = Wall | Opening | Stair | FloorSlab | Room;
 export type ElementKind = PlacedElement['kind'];
 
 export const categoryOf = (e: PlacedElement): BuildCategory =>
-  e.kind === 'wall' ? 'walls' : e.kind === 'stair' ? 'stairs' : e.kind === 'slab' ? 'flooring' : 'openings';
+  e.kind === 'wall'
+    ? 'walls'
+    : e.kind === 'stair'
+      ? 'stairs'
+      : e.kind === 'slab'
+        ? 'flooring'
+        : e.kind === 'room'
+          ? 'rooms'
+          : 'openings';
 
 export const MODE_CATEGORIES: Record<Mode, BuildCategory[]> = {
-  build: ['walls', 'openings', 'stairs', 'flooring'],
+  build: ['walls', 'openings', 'stairs', 'flooring', 'rooms'],
   interior: [], // furniture categories arrive with interior mode
 };
+
+/** Shoelace area of a plan polygon, square feet. */
+export function polygonSqft(poly: Vec2[]): number {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    a += p.x * q.z - q.x * p.z;
+  }
+  return Math.abs(a) / 2 / 144;
+}
 
 // ---------------------------------------------------------------------------
 // Floors
