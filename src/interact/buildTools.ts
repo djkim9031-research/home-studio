@@ -32,6 +32,31 @@ export interface ToolContext {
 const grid = (v: number): number => Math.round(v / SNAP.grid) * SNAP.grid;
 const gridPt = (p: Vec2): Vec2 => ({ x: grid(p.x), z: grid(p.z) });
 
+/** True when a new segment a→b lies on top of an existing wall: collinear
+ * within a couple inches and overlapping most of its own length — the case
+ * of two rooms sharing an edge, which should be one wall, not two. */
+function wallsCoincide(a: Vec2, b: Vec2, w: Wall): boolean {
+  const dnx = b.x - a.x;
+  const dnz = b.z - a.z;
+  const nLen = Math.hypot(dnx, dnz) || 1;
+  const dwx = w.b.x - w.a.x;
+  const dwz = w.b.z - w.a.z;
+  const wLen = Math.hypot(dwx, dwz) || 1;
+  // parallel?
+  if (Math.abs((dnx * dwz - dnz * dwx) / (nLen * wLen)) > 0.02) return false;
+  const ux = dwx / wLen;
+  const uz = dwz / wLen;
+  // both new endpoints must sit on the existing wall's line (perp ≤ ~3")
+  const perp = (p: Vec2): number => Math.abs((p.x - w.a.x) * -uz + (p.z - w.a.z) * ux);
+  if (perp(a) > w.thickIn / 2 + 3 || perp(b) > w.thickIn / 2 + 3) return false;
+  // overlap of the two spans projected onto the shared line
+  const ta = (a.x - w.a.x) * ux + (a.z - w.a.z) * uz;
+  const tb = (b.x - w.a.x) * ux + (b.z - w.a.z) * uz;
+  const lo = Math.max(0, Math.min(ta, tb));
+  const hi = Math.min(wLen, Math.max(ta, tb));
+  return hi - lo >= nLen * 0.5; // most of the new wall overlaps the old
+}
+
 function wallsOn(floor: FloorIndex): Wall[] {
   return store.getState().elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === floor);
 }
@@ -208,8 +233,17 @@ export class WallTool implements Tool {
     if (!valid) return; // a bare click never places
     const b = rb;
     const floorIdx = store.getState().activeFloor;
+    // where a new edge lands on an existing wall (rooms placed side by side),
+    // reuse the existing wall instead of stacking a second one on top
+    const existing = wallsOn(floorIdx);
+    const fresh = runs.filter((r) => !existing.some((w) => wallsCoincide(r.a, r.b, w)));
+    if (!fresh.length) {
+      this.ctx.toast('That room shares its walls with existing ones.');
+      if (this.arm.shape === 'line') this.lastB = b;
+      return;
+    }
     store.placeElementsBatch(
-      runs.map((r) => ({
+      fresh.map((r) => ({
         kind: 'wall' as const,
         floor: floorIdx,
         a: r.a,

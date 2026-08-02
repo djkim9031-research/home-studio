@@ -35,12 +35,15 @@ function rowLabel(e: PlacedElement, n: number): string {
   }
 }
 
-/** Right-hand list of everything placed, grouped by category and scoped to
- * the current mode's categories. Click a row to select + edit. */
+/** Right-hand list of everything placed, grouped by collapsible category and
+ * scoped to the current mode's categories. Click a row to select + edit. */
 export function buildPlacedPanel(root: HTMLElement): PlacedPanel {
   const panel = document.createElement('div');
   panel.className = 'items-panel hs-placed';
   root.appendChild(panel);
+
+  // categories start collapsed; expanded ones are remembered across refreshes
+  const expanded = new Set<BuildCategory>();
 
   const refresh = (): void => {
     const s = store.getState();
@@ -51,8 +54,16 @@ export function buildPlacedPanel(root: HTMLElement): PlacedPanel {
       return;
     }
     panel.style.display = '';
-    panel.innerHTML = '';
 
+    // auto-expand the category that holds the current selection, and preserve
+    // the list's scroll position so locking an item doesn't jump the view
+    if (s.selectedId) {
+      const sel = els.find((e) => e.id === s.selectedId);
+      if (sel) expanded.add(categoryOf(sel));
+    }
+    const prevScroll = (panel.querySelector('.items-list') as HTMLElement | null)?.scrollTop ?? 0;
+
+    panel.innerHTML = '';
     const head = document.createElement('div');
     head.className = 'items-head';
     head.innerHTML = `<span>Placed (${els.length})</span>`;
@@ -70,10 +81,17 @@ export function buildPlacedPanel(root: HTMLElement): PlacedPanel {
     for (const cat of cats) {
       const inCat = els.filter((e) => categoryOf(e) === cat);
       if (!inCat.length) continue;
+      const open = expanded.has(cat);
       const catHead = document.createElement('div');
       catHead.className = 'item-row set-head';
-      catHead.innerHTML = `<span class="item-label">▣ ${CAT_LABELS[cat]} (${inCat.length})</span>`;
+      catHead.innerHTML = `<span class="item-label">${open ? '▾' : '▸'} ${CAT_LABELS[cat]} (${inCat.length})</span>`;
+      catHead.addEventListener('click', () => {
+        if (expanded.has(cat)) expanded.delete(cat);
+        else expanded.add(cat);
+        refresh();
+      });
       list.appendChild(catHead);
+      if (!open) continue;
       let n = 0;
       for (const e of inCat) {
         n += 1;
@@ -92,6 +110,17 @@ export function buildPlacedPanel(root: HTMLElement): PlacedPanel {
         row.append(label, del);
         row.addEventListener('click', () => store.select(s.selectedIds.includes(e.id) ? null : e.id));
         list.appendChild(row);
+      }
+    }
+
+    list.scrollTop = prevScroll;
+    // make sure the freshly selected row is actually in view
+    const selRow = list.querySelector('.item-row.selected') as HTMLElement | null;
+    if (selRow) {
+      const top = selRow.offsetTop;
+      const bottom = top + selRow.offsetHeight;
+      if (top < list.scrollTop || bottom > list.scrollTop + list.clientHeight) {
+        selRow.scrollIntoView({ block: 'nearest' });
       }
     }
   };

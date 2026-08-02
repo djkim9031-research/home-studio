@@ -393,6 +393,30 @@ if (params.get('qa') === 'shapecard') {
     }, 500);
   }, 3000);
 }
+if (params.get('qa') === 'merge') {
+  // place two adjacent rectangles sharing an edge; the shared wall must not double
+  setTimeout(() => {
+    store.clearAll();
+    const floorIdx = 0;
+    // rect A: corners (0,0)-(192,144)
+    store.placeElementsBatch(
+      [
+        [{ x: 0, z: 0 }, { x: 192, z: 0 }],
+        [{ x: 192, z: 0 }, { x: 192, z: 144 }],
+        [{ x: 192, z: 144 }, { x: 0, z: 144 }],
+        [{ x: 0, z: 144 }, { x: 0, z: 0 }],
+      ].map(([a, b]) => ({ kind: 'wall', floor: floorIdx, a, b, heightIn: 96, thickIn: 5, color: '#f2eee6', textureId: 'paint' }) as never),
+    );
+    const before = store.getState().elements.filter((e) => e.kind === 'wall').length;
+    // rect B to the right sharing the x=192 edge, placed via the tool at anchor tl (192,0)
+    const tool = new WallTool({ shape: 'rect', rectLenIn: 192, rectWidIn: 144, rectAnchor: 'tl' }, toolCtx);
+    // drive onDown/onUp with the same floor point (no drag) at (192,0)
+    (tool as unknown as { a: { x: number; z: number } }).a = { x: 192, z: 0 };
+    (tool as unknown as { onUp(f: { x: number; z: number }): void }).onUp({ x: 192, z: 0 });
+    const after = store.getState().elements.filter((e) => e.kind === 'wall').length;
+    document.title = `QAMERGE rectA=${before} +rectB=${after - before} (want +3, shared wall skipped) total=${after}`;
+  }, 2500);
+}
 if (params.get('qa') === 'shapes') {
   // rectangle by DIMENSIONS: click (no drag) places an L×W room at the anchor
   setTimeout(() => {
