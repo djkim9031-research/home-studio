@@ -91,7 +91,7 @@ export function wallExteriorSide(elements: PlacedElement[], floor: number, wall:
   return 'pos'; // -normal interior (or freestanding) ⇒ treat +normal as exterior
 }
 
-function spanFinishAt(spans: FaceSpan[] | undefined, whole: WallFace | undefined, t: number): { textureId: string; color: string } | null {
+export function spanFinishAt(spans: FaceSpan[] | undefined, whole: WallFace | undefined, t: number): { textureId: string; color: string } | null {
   if (spans) {
     const sp = spans.find((s) => t >= Math.min(s.from, s.to) - 0.01 && t <= Math.max(s.from, s.to) + 0.01);
     if (sp) return { textureId: sp.textureId, color: sp.color };

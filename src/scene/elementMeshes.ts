@@ -3,7 +3,7 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { COLORS, i2m, IN, JOIST_T } from '../constants';
 import { finishMaterial, finishRepeatPerIn } from '../data/registry';
 import { openingsOf, wallDir, wallLen, wallPointAt } from '../core/validity';
-import { edgeFinishFacing, finishFacingPoint } from '../core/wallGroups';
+import { edgeFinishFacing, spanFinishAt } from '../core/wallGroups';
 import {
   floorBaseIn,
   polygonSqft,
@@ -237,16 +237,15 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     }
     return finishMat(whole);
   };
-  // a vertical thickness edge wears the finish of the region it actually faces —
-  // sampled just off the edge, so any wall gets the right colour at each end
-  const off = wall.thickIn / 2 + 3;
-  const edgeMat = (p: Vec2): THREE.MeshStandardMaterial => {
-    const f = finishFacingPoint(elements, wall.floor, p);
-    return f ? finishMat(f) : mat;
-  };
-  // the two length-end caps: what sits just beyond each end of the wall
-  const endAMat = edgeMat({ x: wall.a.x - dir.x * off, z: wall.a.z - dir.z * off });
-  const endBMat = edgeMat({ x: wall.b.x + dir.x * off, z: wall.b.z + dir.z * off });
+  // a thickness edge takes its OWN wall's finish — never a region-wide guess (a
+  // room may hold a differently-painted wall). A cap shows this wall's finish at
+  // that end (whichever side is painted); an unpainted wall's edge stays bare.
+  const capFinish = (t: number): { textureId: string; color: string } | null =>
+    spanFinishAt(wall.facePosSpans, wall.facePos, t) ?? spanFinishAt(wall.faceNegSpans, wall.faceNeg, t);
+  const endAFin = capFinish(0);
+  const endBFin = capFinish(len);
+  const endAMat = endAFin ? finishMat(endAFin) : mat;
+  const endBMat = endBFin ? finishMat(endBFin) : mat;
 
   const seg = (t0: number, t1: number, y0: number, y1: number): void => {
     const L = t1 - t0;
@@ -307,8 +306,8 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
 
   // corner posts: where walls weld at a shared endpoint the box ends leave an
   // unfilled outer notch (and their caps z-fight). Fill it with ONE square post
-  // per corner — each VERTICAL side clad in the finish of the region it faces
-  // (top bare), owned by the lowest-id wall there so it is drawn exactly once.
+  // per corner — each VERTICAL side continues the specific wall face it is
+  // coplanar with (top bare), owned by the lowest-id wall so it is drawn once.
   const weldTol = wall.thickIn + 3;
   const cornerPost = (p: Vec2): void => {
     const here = floorWalls.filter(
@@ -317,10 +316,10 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     if (here.length < 2) return; // nothing to join
     if (here.some((e) => e.id < wall.id)) return; // a lower-id wall owns this corner
     const geo = new THREE.BoxGeometry(i2m(wall.thickIn), i2m(wall.heightIn), i2m(wall.thickIn));
-    // each post side continues the wall face it is coplanar with; if that face
-    // is unpainted, fall back to the region just off it so no bare sliver shows
+    // each post side takes ONLY its coplanar wall face's finish (bare if that
+    // face is unpainted) — never borrowing a colour from elsewhere in the room
     const postMat = (dx: number, dz: number): THREE.MeshStandardMaterial => {
-      const f = edgeFinishFacing(elements, wall.floor, p, dx, dz) ?? finishFacingPoint(elements, wall.floor, { x: p.x + dx * off, z: p.z + dz * off });
+      const f = edgeFinishFacing(elements, wall.floor, p, dx, dz);
       return f ? finishMat(f) : mat;
     };
     const post = new THREE.Mesh(geo, [postMat(1, 0), postMat(-1, 0), mat, mat, postMat(0, 1), postMat(0, -1)]);
