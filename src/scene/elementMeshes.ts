@@ -213,6 +213,22 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   const extA = meets(wall.a) ? wall.thickIn / 2 : 0;
   const extB = meets(wall.b) ? wall.thickIn / 2 : 0;
 
+  // which face points away from the plan's built-up area is the exterior; the
+  // box end caps are painted with that finish so a welded corner reads as one
+  // continuous exterior surface instead of exposing bare plaster where two
+  // perpendicular runs meet (facePos normal is the plan +normal (-dz, dx))
+  const floorWalls = elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === wall.floor);
+  let cxSum = 0;
+  let czSum = 0;
+  for (const w of floorWalls) {
+    cxSum += w.a.x + w.b.x;
+    czSum += w.a.z + w.b.z;
+  }
+  const nPts = floorWalls.length * 2 || 1;
+  const plan = { x: cxSum / nPts, z: czSum / nPts };
+  const midWall = wallPointAt(wall, len / 2);
+  const exteriorIsPos = (midWall.x - plan.x) * -dir.z + (midWall.z - plan.z) * dir.x > 0;
+
   // per-face finish varies along the length: a span covering t wins, else the
   // whole-face finish, else the base — cached so identical runs share a material
   const matCache = new Map<string, THREE.MeshStandardMaterial>();
@@ -249,7 +265,9 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     scaleBoxUV(geo, L * rep, (y1 - y0) * rep);
     // box material order: +x, -x, +y, -y, +z, -z. The mesh's yaw maps its
     // local -z onto the plan +normal (-dz, dx), so facePos → the -z face.
-    const m = new THREE.Mesh(geo, [mat, mat, mat, mat, matNeg, matPos]);
+    // The ±x length-end caps take the exterior finish so corners stay painted.
+    const capMat = exteriorIsPos ? matPos : matNeg;
+    const m = new THREE.Mesh(geo, [capMat, capMat, mat, mat, matNeg, matPos]);
     const mid = wallPointAt(wall, midT);
     m.position.set(i2m(mid.x), i2m(baseY + (y0 + y1) / 2), i2m(mid.z));
     m.rotation.y = yaw;

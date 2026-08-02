@@ -131,11 +131,14 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     const inCol = colorInput('#e8dfd0');
     const outTex = selInput('outside', WALL_TEXTURES);
     const outCol = colorInput('#dfe8ee');
-    // L/W/anchor + inside/outside only apply to Rectangle; show/hide with shape
+    // L/W/anchor + inside/outside only apply to Rectangle; the single finish is
+    // for a Straight wall — show one set or the other, never both
     const rectOnly = [len.el, wid.el, anchor.el, inTex.el, inCol.el, outTex.el, outCol.el];
+    const lineOnly = [tex.el, col.el];
     const syncLW = (): void => {
       const on = shape.get() === 'rect';
       for (const el of rectOnly) el.style.display = on ? '' : 'none';
+      for (const el of lineOnly) el.style.display = on ? 'none' : '';
     };
     (shape.el.querySelector('select') as HTMLSelectElement).addEventListener('change', syncLW);
     syncLW();
@@ -150,8 +153,9 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
         rectOutside: { textureId: outTex.get(), color: outCol.get() },
         heightIn: h.get(),
         thickIn: t.get(),
-        textureId: tex.get(),
-        color: col.get(),
+        // a rectangle's base finish (wall top) tracks its outside finish
+        textureId: shape.get() === 'rect' ? outTex.get() : tex.get(),
+        color: shape.get() === 'rect' ? outCol.get() : col.get(),
       })),
     ]);
   }
