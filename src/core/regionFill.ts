@@ -146,7 +146,57 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
 
   const simplified = simplify(contour, SIMPLIFY_TOL);
   if (simplified.length < 3) return { ok: false, reason: 'tiny' };
-  return { ok: true, polygon: simplified };
+
+  // The traced edge hugs the blocking band ~half a wall inside the face; push
+  // it outward to the wall CENTERLINE so flooring tucks under the walls with
+  // no visible gap. Offset distance derived from the thinnest bounding wall
+  // so the slab never pokes out the far side.
+  const minThick = Math.min(...walls.map((w) => w.thickIn));
+  const off = minThick / 2 + CELL * 0.95;
+  return { ok: true, polygon: offsetPolygon(simplified, off) };
+}
+
+/** Push every vertex outward along its angle bisector by `d` inches. */
+function offsetPolygon(poly: Vec2[], d: number): Vec2[] {
+  const n = poly.length;
+  // orientation: positive shoelace = CCW in (x, z) math axes
+  let area2 = 0;
+  for (let i = 0; i < n; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % n];
+    area2 += p.x * q.z - q.x * p.z;
+  }
+  const sign = area2 > 0 ? 1 : -1;
+  const outward = (a: Vec2, b: Vec2): Vec2 => {
+    const ex = b.x - a.x;
+    const ez = b.z - a.z;
+    const len = Math.hypot(ex, ez) || 1;
+    return { x: (sign * ez) / len, z: (-sign * ex) / len };
+  };
+  const out: Vec2[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = poly[(i - 1 + n) % n];
+    const cur = poly[i];
+    const next = poly[(i + 1) % n];
+    const n1 = outward(prev, cur);
+    const n2 = outward(cur, next);
+    let bx = n1.x + n2.x;
+    let bz = n1.z + n2.z;
+    const bl = Math.hypot(bx, bz);
+    if (bl < 1e-6) {
+      // 180° spike — offset along one normal
+      bx = n1.x;
+      bz = n1.z;
+    } else {
+      bx /= bl;
+      bz /= bl;
+    }
+    // miter length so straight edges stay parallel; capped for sharp corners
+    const cosHalf = Math.max(0.34, Math.sqrt(Math.max(0.05, (1 + (n1.x * n2.x + n1.z * n2.z)) / 2)));
+    const m = Math.min(d / cosHalf, d * 3);
+    out.push({ x: cur.x + bx * m, z: cur.z + bz * m });
+  }
+  return out;
 }
 
 /** Douglas-Peucker. */
