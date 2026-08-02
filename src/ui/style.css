@@ -333,6 +333,122 @@ button.ui-btn.danger:hover {
   text-align: right;
 }
 
+.sun-loc {
+  gap: 6px;
+}
+
+.sun-loc-lbl {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  font-size: 10px;
+  color: #8d8478;
+  white-space: nowrap;
+}
+
+.sun-num {
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 3px 4px;
+  background: #fff;
+  color: var(--ink);
+  min-width: 0;
+  width: 100%;
+}
+
+/* orbit compass, bottom-right of the viewport */
+.hs-compass {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: rgba(250, 247, 240, 0.86);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 2px 10px rgba(60, 50, 30, 0.16);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.hs-compass-dial {
+  position: absolute;
+  inset: 0;
+  transition: transform 0.08s linear;
+}
+
+.hs-compass-dial > span {
+  position: absolute;
+  font-size: 11px;
+  font-weight: 700;
+  color: #8d8478;
+  transform: translate(-50%, -50%);
+  left: 50%;
+  top: 50%;
+}
+
+.hs-compass-n {
+  margin-top: -24px;
+  color: #b6472e !important;
+}
+
+.hs-compass-s {
+  margin-top: 24px;
+}
+
+.hs-compass-e {
+  margin-left: 24px;
+}
+
+.hs-compass-w {
+  margin-left: -24px;
+}
+
+.hs-compass-needle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(to top, #6b6355 0 50%, #b6472e 50% 100%);
+  border-radius: 2px;
+}
+
+.hs-pal-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.hs-edit-btn {
+  font: inherit;
+  font-size: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--brass);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--brass);
+  cursor: pointer;
+}
+
+.hs-edit-btn:hover {
+  background: var(--brass);
+  color: #fff;
+}
+
+.hs-edit-note {
+  font-size: 11px;
+  color: #b6472e;
+}
+
 .sun-info {
   white-space: pre-line;
   font-size: 11px;

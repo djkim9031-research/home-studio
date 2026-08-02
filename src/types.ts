@@ -72,6 +72,8 @@ export interface Opening extends ElementBase {
   /** bottom of the opening above the floor: doors 0, windows default 36 */
   sillIn: number;
   styleId: string;
+  /** the home's main entrance — at most one door across the whole project */
+  isMainEntrance?: boolean;
 }
 
 export interface Stair extends ElementBase {

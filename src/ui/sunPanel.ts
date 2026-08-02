@@ -1,4 +1,4 @@
-import { fmtClock, horizonAltDeg, moonState, moonTimes, phaseName, sunPosition, sunTimes, twilightTimes } from '../scene/sun';
+import { fmtClock, getSite, horizonAltDeg, moonState, moonTimes, phaseName, setSite, sunPosition, sunTimes, twilightTimes } from '../scene/sun';
 
 export interface SunPanelState {
   enabled: boolean;
@@ -6,6 +6,10 @@ export interface SunPanelState {
   minutes: number; // minutes after midnight, site-local
   clouds: boolean;
   cloudPct: number;
+  /** site location — undefined keeps the built-in default (San Jose, CA) */
+  lat?: number;
+  lon?: number;
+  elevationM?: number;
 }
 
 const KEY = 'hs:sun';
@@ -79,6 +83,11 @@ export function buildSunPanel(
       </div>
       <input type="range" data-k="slider" min="0" max="1439" step="5" class="sun-slider" title="Time of day">
       <div class="sun-info" data-k="info"></div>
+      <div class="sun-row sun-loc" title="Site location — drives the sun & moon position, rise/set and phase">
+        <label class="sun-loc-lbl">lat<input type="number" data-k="lat" class="sun-num" step="0.01" min="-90" max="90"></label>
+        <label class="sun-loc-lbl">lon<input type="number" data-k="lon" class="sun-num" step="0.01" min="-180" max="180"></label>
+        <label class="sun-loc-lbl">elev m<input type="number" data-k="elev" class="sun-num" step="10" min="0" max="9000"></label>
+      </div>
       <div class="sun-row">
         <label class="sun-toggle"><input type="checkbox" data-k="clouds"> clouds</label>
         <input type="range" data-k="cloudPct" min="0" max="100" step="5" class="sun-slider cloud-slider">
@@ -104,6 +113,21 @@ export function buildSunPanel(
   const cloudsEl = el<HTMLInputElement>('clouds');
   const cloudPctEl = el<HTMLInputElement>('cloudPct');
   const pctEl = el<HTMLSpanElement>('pct');
+  const latEl = el<HTMLInputElement>('lat');
+  const lonEl = el<HTMLInputElement>('lon');
+  const elevEl = el<HTMLInputElement>('elev');
+
+  // push the panel's location into the sun model so every calc uses it
+  const applySite = (): void => {
+    const base = getSite();
+    setSite({
+      ...base,
+      lat: s.lat ?? base.lat,
+      lon: s.lon ?? base.lon,
+      elevationM: s.elevationM ?? base.elevationM,
+    });
+  };
+  if (s.lat != null || s.lon != null || s.elevationM != null) applySite();
 
   const fmtTimeInput = (min: number) =>
     `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
@@ -116,8 +140,13 @@ export function buildSunPanel(
     cloudsEl.checked = s.clouds;
     cloudPctEl.value = String(s.cloudPct);
     pctEl.textContent = `${s.cloudPct}%`;
+    const site = getSite();
+    if (document.activeElement !== latEl) latEl.value = String(s.lat ?? site.lat);
+    if (document.activeElement !== lonEl) lonEl.value = String(s.lon ?? site.lon);
+    if (document.activeElement !== elevEl) elevEl.value = String(s.elevationM ?? site.elevationM ?? 0);
     dateEl.disabled = timeEl.disabled = sliderEl.disabled = !s.enabled;
     cloudsEl.disabled = cloudPctEl.disabled = !s.enabled;
+    latEl.disabled = lonEl.disabled = elevEl.disabled = !s.enabled;
     if (s.enabled) {
       const t = sunTimes(s.date);
       const tw = twilightTimes(s.date);
@@ -175,6 +204,19 @@ export function buildSunPanel(
     s.cloudPct = parseInt(cloudPctEl.value, 10);
     commit();
   });
+  const onLoc = (): void => {
+    const lat = parseFloat(latEl.value);
+    const lon = parseFloat(lonEl.value);
+    const elev = parseFloat(elevEl.value);
+    if (Number.isFinite(lat)) s.lat = Math.max(-90, Math.min(90, lat));
+    if (Number.isFinite(lon)) s.lon = Math.max(-180, Math.min(180, lon));
+    if (Number.isFinite(elev)) s.elevationM = Math.max(0, elev);
+    applySite();
+    commit();
+  };
+  latEl.addEventListener('change', onLoc);
+  lonEl.addEventListener('change', onLoc);
+  elevEl.addEventListener('change', onLoc);
 
   render();
   onChange(s);

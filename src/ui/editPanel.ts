@@ -58,6 +58,24 @@ export function buildEditPanel(root: HTMLElement, toast: (msg: string) => void):
     return row;
   };
 
+  const btnRow = (text: string, onClick: () => void): HTMLElement => {
+    const row = document.createElement('div');
+    row.className = 'hs-edit-row';
+    const btn = document.createElement('button');
+    btn.className = 'hs-edit-btn';
+    btn.textContent = text;
+    btn.addEventListener('click', onClick);
+    row.appendChild(btn);
+    return row;
+  };
+
+  const noteRow = (text: string): HTMLElement => {
+    const row = document.createElement('div');
+    row.className = 'hs-edit-row hs-edit-note';
+    row.textContent = text;
+    return row;
+  };
+
   const refresh = (): void => {
     const s = store.getState();
     const el = s.elements.find((e) => e.id === s.selectedId);
@@ -163,6 +181,15 @@ export function buildEditPanel(root: HTMLElement, toast: (msg: string) => void):
           selRow('Style', el.kind === 'door' ? DOOR_STYLES : WINDOW_STYLES, el.styleId, (v) => patch({ styleId: v })),
         );
         body.appendChild(colorRow(el.color, (v) => patch({ color: v })));
+        if (el.kind === 'door') {
+          const anyMain = s.elements.some((e) => e.kind === 'door' && e.isMainEntrance);
+          if (el.isMainEntrance) {
+            body.appendChild(noteRow('★ Main entrance — the plan faces this door down'));
+            body.appendChild(btnRow('Clear main entrance', () => store.setMainEntrance(null)));
+          } else {
+            body.appendChild(btnRow(anyMain ? 'Switch to main entrance' : 'Set as main entrance', () => store.setMainEntrance(el.id)));
+          }
+        }
         break;
       }
       case 'stair': {

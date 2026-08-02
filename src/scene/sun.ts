@@ -11,6 +11,8 @@ export interface Site {
   tz: string;
   /** rotation from true north into the model frame: model −z faces this true azimuth */
   northOffsetDeg: number;
+  /** observer height above sea level, metres — dips the horizon a little */
+  elevationM?: number;
   /** apparent horizon elevation by true azimuth (mountains etc.); default flat */
   horizonAltDeg?: (azTrueDeg: number) => number;
 }
@@ -20,6 +22,7 @@ let site: Site = {
   lon: -121.89,
   tz: 'America/Los_Angeles',
   northOffsetDeg: 0,
+  elevationM: 25,
 };
 
 export function setSite(s: Site): void {
@@ -32,6 +35,12 @@ export function getSite(): Site {
 
 export function horizonAltDeg(azTrueDeg: number): number {
   return site.horizonAltDeg ? site.horizonAltDeg(azTrueDeg) : 0;
+}
+
+/** Geometric dip of the sea horizon for the observer's height (degrees). */
+export function elevationDipDeg(): number {
+  const h = Math.max(0, site.elevationM ?? 0);
+  return 0.0293 * Math.sqrt(h); // ≈ 1.76′·√(h in m)
 }
 
 export interface SunState {
@@ -130,7 +139,8 @@ function crossingTimes(
 
 /** Sunrise/sunset (standard −0.833° almanac horizon, matching published tables). */
 export function sunTimes(dateStr: string): { sunrise: number | null; sunset: number | null } {
-  const t = crossingTimes(dateStr, 90.833);
+  // higher ground dips the horizon, so the sun clears/leaves it a bit earlier/later
+  const t = crossingTimes(dateStr, 90.833 + elevationDipDeg());
   return { sunrise: t.rise, sunset: t.set };
 }
 

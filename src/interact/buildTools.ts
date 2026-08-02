@@ -328,6 +328,7 @@ export interface OpeningArm {
   sillIn: number;
   styleId: string;
   color: string;
+  mainEntrance?: boolean;
 }
 
 export class OpeningTool implements Tool {
@@ -345,6 +346,7 @@ export class OpeningTool implements Tool {
       sillIn: arm.sillIn ?? (arm.door ? 0 : DEFAULT_WINDOW.sill),
       styleId: arm.styleId ?? (arm.door ? 'panel' : 'singleHung'),
       color: arm.color ?? '#f5f2ea',
+      mainEntrance: arm.mainEntrance,
     };
     this.ctx = ctx;
   }
@@ -398,7 +400,7 @@ export class OpeningTool implements Tool {
     const s = store.getState();
     const wall = s.elements.find((e): e is Wall => e.kind === 'wall' && e.id === hover.wallId);
     if (!wall) return;
-    store.placeElement({
+    const placed = store.placeElement({
       kind: this.arm.door ? 'door' : 'window',
       floor: wall.floor,
       wallId: wall.id,
@@ -409,6 +411,7 @@ export class OpeningTool implements Tool {
       styleId: this.arm.styleId,
       color: this.arm.color,
     } as Omit<PlacedElement, 'id'>);
+    if (this.arm.door && this.arm.mainEntrance) store.setMainEntrance(placed.id);
   }
 
   onHover(_floor: Vec2 | null, ev: PointerEvent): void {

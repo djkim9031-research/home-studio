@@ -19,6 +19,7 @@ import { buildLanding } from './ui/landing';
 import { buildPalette, type ArmSpec } from './ui/palette';
 import { buildPlacedPanel } from './ui/placedPanel';
 import { buildEditPanel } from './ui/editPanel';
+import { buildCompass } from './ui/compass';
 import { buildMinimap } from './ui/minimap';
 import { buildSunPanel, type SunPanelState } from './ui/sunPanel';
 import { buildToolbar, type Toolbar } from './ui/toolbar';
@@ -44,7 +45,12 @@ const meshes = new ElementMeshes(host.elementsGroup);
 const ceilings = new Ceilings(host.elementsGroup);
 const ghost = new GhostVisual(host.overlayGroup);
 const cutaway = new CutawayController(meshes);
+const compass = buildCompass(viewport);
 host.onFrame(() => {
+  compass.update(
+    { x: rig.camera.position.x, z: rig.camera.position.z },
+    { x: rig.controls.target.x, z: rig.controls.target.z },
+  );
   if (cutaway.update(rig.camera.position)) {
     host.invalidateShadows();
     return true;
@@ -419,6 +425,16 @@ if (params.get('qa') === 'rectio') {
     const walls = store.getState().elements.filter((e) => e.kind === 'wall');
     const faces = walls.map((w) => (w.kind === 'wall' ? `${w.facePos?.textureId ?? '-'}|${w.faceNeg?.textureId ?? '-'}` : '')).join(' ');
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
+  }, 2500);
+}
+if (params.get('qa') === 'mainent') {
+  // mark the seed room's door as the main entrance → minimap should reorient
+  setTimeout(() => {
+    const door = store.getState().elements.find((e) => e.kind === 'door');
+    if (door) store.setMainEntrance(door.id);
+    const d2 = store.getState().elements.find((e) => e.kind === 'door');
+    document.title = `QAMAIN main=${d2 && d2.kind === 'door' ? d2.isMainEntrance : '?'}`;
+    rig.toTopView();
   }, 2500);
 }
 if (params.get('qa') === 'patch') {

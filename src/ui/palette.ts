@@ -1,11 +1,12 @@
 import { DEFAULT_DOOR, DEFAULT_STAIR, DEFAULT_WALL_H, DEFAULT_WALL_T, DEFAULT_WINDOW } from '../constants';
 import { DOOR_STYLES, FLOOR_TEXTURES, STAIR_STYLES, WALL_TEXTURES, WINDOW_STYLES, type StyleDef, type FinishDef } from '../data/registry';
+import * as store from '../state/store';
 import { THUMBS } from './thumbnails';
 
 /** What the palette asks main.ts to arm. */
 export type ArmSpec =
   | { tool: 'wall'; shape: 'line' | 'rect'; heightIn: number; thickIn: number; color: string; textureId: string; rectLenIn: number; rectWidIn: number; rectAnchor: 'tl' | 'tr' | 'bl' | 'br' | 'center'; rectInside: { textureId: string; color: string }; rectOutside: { textureId: string; color: string } }
-  | { tool: 'opening'; door: boolean; widthIn: number; heightIn: number; sillIn: number; styleId: string; color: string }
+  | { tool: 'opening'; door: boolean; widthIn: number; heightIn: number; sillIn: number; styleId: string; color: string; mainEntrance?: boolean }
   | { tool: 'stair'; widthIn: number; runIn: number; flights: 1 | 2; styleId: string; textureId: string; color: string }
   | { tool: 'fill'; textureId: string; color: string }
   | { tool: 'wallpaper'; textureId: string; color: string; widthIn: number; heightIn: number; offXIn: number; offYIn: number }
@@ -165,7 +166,22 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     const dh = numInput('H"', DEFAULT_DOOR.h, 60, 120);
     const ds = selInput('style', DOOR_STYLES);
     const dc = colorInput('#f5f2ea');
-    const doorCard = card(THUMBS.door, 'Door — click a wall', [dw.el, dh.el, ds.el, dc.el], () => ({
+    // main-entrance toggle — wording flips to "switch to…" once one is defined
+    const meWrap = document.createElement('label');
+    meWrap.className = 'hs-pal-check';
+    const meBox = document.createElement('input');
+    meBox.type = 'checkbox';
+    const meText = document.createElement('span');
+    meWrap.append(meBox, meText);
+    const syncMe = (): void => {
+      const anyMain = store.getState().elements.some((e) => e.kind === 'door' && e.isMainEntrance);
+      meText.textContent = anyMain ? 'switch to main entrance' : 'main entrance';
+    };
+    syncMe();
+    store.subscribe((_s, ev) => {
+      if (ev.kind === 'items' || ev.kind === 'load') syncMe();
+    });
+    const doorCard = card(THUMBS.door, 'Door — click a wall', [dw.el, dh.el, ds.el, dc.el, meWrap], () => ({
       tool: 'opening',
       door: true,
       widthIn: dw.get(),
@@ -173,6 +189,7 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
       sillIn: 0,
       styleId: ds.get(),
       color: dc.get(),
+      mainEntrance: meBox.checked,
     }));
     const ww = numInput('W"', DEFAULT_WINDOW.w, 12, 120);
     const wh = numInput('H"', DEFAULT_WINDOW.h, 12, 96);

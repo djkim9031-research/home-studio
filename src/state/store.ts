@@ -177,6 +177,23 @@ export function updateElement(id: string, patch: Partial<PlacedElement>): void {
   emit({ kind: 'items', changedIds: changed });
 }
 
+/** Mark one door as the home's main entrance; any previous one loses the flag
+ * in the SAME undo step. Passing null just clears whatever is set. */
+export function setMainEntrance(id: string | null): void {
+  const changed: string[] = [];
+  const next = state.elements.map((e) => {
+    if (e.kind !== 'door') return e;
+    const should = e.id === id;
+    if (!!e.isMainEntrance === should) return e;
+    changed.push(e.id);
+    return { ...e, isMainEntrance: should } as PlacedElement;
+  });
+  if (!changed.length) return;
+  history.push(state.elements);
+  state.elements = next;
+  emit({ kind: 'items', changedIds: changed });
+}
+
 /** Deleting a wall cascades to the openings it carries. */
 export function deleteElements(ids: string[]): void {
   if (!ids.length) return;

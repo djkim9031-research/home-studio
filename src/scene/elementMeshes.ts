@@ -253,20 +253,24 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     return finishMat(whole);
   };
 
-  const seg = (t0: number, t1: number, y0: number, y1: number): void => {
+  // `exteriorOnly` renders the corner nubs: both long faces take the exterior
+  // finish so the buried interior face can't z-fight through the outside corner.
+  const seg = (t0: number, t1: number, y0: number, y1: number, exteriorOnly = false): void => {
     const L = t1 - t0;
     if (L < 0.5 || y1 - y0 < 0.5) return;
     const midT = (t0 + t1) / 2;
     // corner extensions run past [0,len]; clamp so the nub keeps the end finish
     const faceT = Math.max(0, Math.min(len, midT));
-    const matPos = faceAt(wall.facePosSpans, wall.facePos, faceT);
-    const matNeg = faceAt(wall.faceNegSpans, wall.faceNeg, faceT);
+    const facePos = faceAt(wall.facePosSpans, wall.facePos, faceT);
+    const faceNeg = faceAt(wall.faceNegSpans, wall.faceNeg, faceT);
+    const capMat = exteriorIsPos ? facePos : faceNeg;
+    const matPos = exteriorOnly ? capMat : facePos;
+    const matNeg = exteriorOnly ? capMat : faceNeg;
     const geo = new THREE.BoxGeometry(i2m(L), i2m(y1 - y0), i2m(wall.thickIn));
     scaleBoxUV(geo, L * rep, (y1 - y0) * rep);
     // box material order: +x, -x, +y, -y, +z, -z. The mesh's yaw maps its
     // local -z onto the plan +normal (-dz, dx), so facePos → the -z face.
     // The ±x length-end caps take the exterior finish so corners stay painted.
-    const capMat = exteriorIsPos ? matPos : matNeg;
     const m = new THREE.Mesh(geo, [capMat, capMat, mat, mat, matNeg, matPos]);
     const mid = wallPointAt(wall, midT);
     m.position.set(i2m(mid.x), i2m(baseY + (y0 + y1) / 2), i2m(mid.z));
@@ -298,7 +302,7 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     seg(c, t1, 0, wall.heightIn);
   };
 
-  let cursor = -extA;
+  let cursor = 0;
   for (const c of cuts) {
     const t0 = Math.max(cursor, c.t0);
     const t1 = Math.min(len, c.t1);
@@ -307,7 +311,11 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     if (c.sill > 0) seg(t0, t1, 0, c.sill); // sill wall below windows
     cursor = t1;
   }
-  if (cursor < len + extB) solid(cursor, len + extB);
+  if (cursor < len) solid(cursor, len);
+  // corner nubs fill the outer notch, exterior finish only (buried inside the
+  // perpendicular wall, so their interior face must not show at the corner)
+  if (extA > 0) seg(-extA, 0, 0, wall.heightIn, true);
+  if (extB > 0) seg(len, len + extB, 0, wall.heightIn, true);
 
   // wallpaper patches: a thin decal quad proud of the chosen face
   const patchMats: THREE.Material[] = [];
