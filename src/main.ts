@@ -234,15 +234,16 @@ function mainEntrance(): { door: import('./types').Opening; wall: import('./type
   return wall ? { door, wall } : null;
 }
 
-/** Compass bearing (0–360, 0 = north/−z, 90 = east/+x) the front door faces. */
+/** Compass bearing (0 = door faces due north, 90 = east, 180 = south) the front
+ * door faces looking from OUTSIDE — i.e. the bearing of the door's outward normal. */
 function frontDoorBearing(): number | null {
   const me = mainEntrance();
   if (!me) return null;
   const d = wallDir(me.wall);
-  const nPos = { x: -d.z, z: d.x }; // +normal side (faceNeg*)
+  const nPos = { x: -d.z, z: d.x }; // +normal side
   const side = wallExteriorSide(store.getState().elements, me.wall.floor, me.wall);
-  // exterior 'pos' → outward is −nPos; else (incl. shared) → +nPos
-  const out = side === 'pos' ? { x: -nPos.x, z: -nPos.z } : nPos;
+  // exterior on the +normal side ⇒ outward is +nPos; on the −normal side ⇒ −nPos
+  const out = side === 'neg' ? { x: -nPos.x, z: -nPos.z } : nPos;
   return normalizeDeg((Math.atan2(out.x, -out.z) * 180) / Math.PI);
 }
 
@@ -726,8 +727,9 @@ if (params.get('qa') === 'regroup') {
 }
 if (params.get('qa') === 'repaintfix') {
   // load a fixture via #loadtest, strip its stored spans, and REPAINT exterior +
-  // each detected room with the current classifier — shows whether faces group right
-  setTimeout(() => {
+  // each detected room with the current classifier — shows whether faces group right.
+  // Poll until the async fixture has actually loaded (a fixed delay races slow loads).
+  const repaint = (): void => {
     const walls0 = store.getState().elements.filter((e) => e.kind === 'wall');
     store.updateElementsBatch(walls0.map((e) => ({ id: e.id, patch: { facePosSpans: [], faceNegSpans: [] } as never })));
     const apply = (target: number, finish: { textureId: string; color: string }): void => {
@@ -742,11 +744,19 @@ if (params.get('qa') === 'repaintfix') {
       );
     };
     apply(-1, { textureId: 'brick', color: '#c76f4a' });
-    const cols = ['#8fb0d0', '#d8e2d0', '#e6c9a8', '#c9b6d8', '#d9b0a0', '#b0c4a0'];
+    const cols = ['#8fb0d0', '#d8e2d0', '#e6c9a8', '#c9b6d8', '#d9b0a0', '#b0c4a0', '#c8b0d0', '#e0c8a0', '#a0c0d8'];
     const n = detectEnclosedRegions(store.getState().elements, 0).length;
     for (let i = 0; i < n; i++) apply(i, { textureId: 'paint', color: cols[i % cols.length] });
     rig.toDefaultView();
-  }, 3500);
+  };
+  let waited = 0;
+  const poll = window.setInterval(() => {
+    waited += 200;
+    if (store.getState().elements.some((e) => e.kind === 'wall') || waited > 12000) {
+      window.clearInterval(poll);
+      repaint();
+    }
+  }, 200);
 }
 if (params.get('qa') === 'paintgroup') {
   // two rooms sharing a wall: paint each interior + the exterior via groups

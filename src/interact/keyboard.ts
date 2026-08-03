@@ -47,6 +47,20 @@ export function installKeyboard(rig: CameraRig, pointer: PointerController, onTo
       case 'O':
         rig.toDefaultView();
         break;
+      case 'q':
+      case 'Q':
+      case 'r':
+      case 'R': {
+        // rotate the selected stair (Q = counter-clockwise, R = clockwise)
+        const s = store.getState();
+        const el = s.elements.find((x) => x.id === s.selectedId);
+        if (el && el.kind === 'stair') {
+          e.preventDefault();
+          const dir = e.key === 'q' || e.key === 'Q' ? -1 : 1;
+          store.updateElement(el.id, { yawDeg: (el.yawDeg + dir * 15 + 360) % 360 });
+        }
+        break;
+      }
     }
   });
 }

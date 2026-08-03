@@ -67,31 +67,56 @@ function faceRegionAt(wall: Wall, plusSide: boolean, t: number, rooms: Vec2[][])
   return regionAt(rooms, { x: wall.a.x + d.x * t + nx * off, z: wall.a.z + d.z * t + nz * off });
 }
 
-/** Room polygons dilate into the wall band, so they briefly overlap at a shared
- * corner; sample only the interior of the run and snap the ends out to the
- * corners, so a face is classified by the room it actually borders, not the
- * ambiguous corner. Returns contiguous (region, from, to) segments. */
-function faceSegments(wall: Wall, plusSide: boolean, rooms: Vec2[][], len: number): { region: number; from: number; to: number }[] {
-  const margin = Math.min(len * 0.25, wall.thickIn + 2);
-  const span = Math.max(0, len - 2 * margin);
-  const n = Math.max(1, Math.ceil(span / SAMPLE_STEP_IN));
-  const samples: { t: number; r: number }[] = [];
-  for (let i = 0; i <= n; i++) {
-    const t = margin + (span * i) / n;
-    samples.push({ t, r: faceRegionAt(wall, plusSide, t, rooms) });
+/** The lengths along `wall` where another wall meets or crosses it — the lines at
+ * which the region a face borders can change, so paint must break exactly there
+ * (not at a coarse sample midpoint). */
+function wallJunctionTs(wall: Wall, walls: Wall[], len: number): number[] {
+  const d = wallDir(wall);
+  const O = wall.a;
+  const proj = (p: Vec2): number => (p.x - O.x) * d.x + (p.z - O.z) * d.z;
+  const side = (p: Vec2): number => (p.x - O.x) * -d.z + (p.z - O.z) * d.x;
+  const band = wall.thickIn / 2 + 3;
+  const ts: number[] = [];
+  const add = (t: number): void => {
+    if (t > 1 && t < len - 1) ts.push(t);
+  };
+  for (const w of walls) {
+    if (w.id === wall.id) continue;
+    for (const p of [w.a, w.b]) if (Math.abs(side(p)) <= band) add(proj(p)); // an endpoint on the line
+    const sa = side(w.a);
+    const sb = side(w.b);
+    if (sa * sb < 0) {
+      const f = Math.abs(sa) / (Math.abs(sa) + Math.abs(sb) || 1); // a wall crossing the line
+      add(proj({ x: w.a.x + (w.b.x - w.a.x) * f, z: w.a.z + (w.b.z - w.a.z) * f }));
+    }
   }
-  // adjacent segments ABUT at the midpoint between the differing samples — never
-  // leaving an unpainted gap at a region transition; ends snap out to 0/len
-  const segs: { region: number; from: number; to: number }[] = [{ region: samples[0].r, from: 0, to: samples[0].t }];
-  for (let i = 1; i < samples.length; i++) {
-    const cur = segs[segs.length - 1];
-    if (samples[i].r !== cur.region) {
-      const mid = (samples[i - 1].t + samples[i].t) / 2;
-      cur.to = mid;
-      segs.push({ region: samples[i].r, from: mid, to: samples[i].t });
-    } else cur.to = samples[i].t;
+  ts.sort((a, b) => a - b);
+  const out: number[] = [];
+  for (const t of ts) if (!out.length || t - out[out.length - 1] > 2) out.push(t);
+  return out;
+}
+
+/** Contiguous (region, from, to) segments of one wall face. The face is split at
+ * every wall-intersection line and each inter-junction stretch is classified by a
+ * single mid-stretch sample — so interior paint stops precisely at a junction and
+ * never bleeds past it. */
+function faceSegments(wall: Wall, plusSide: boolean, rooms: Vec2[][], len: number, walls: Wall[]): { region: number; from: number; to: number }[] {
+  const bounds = [0, ...wallJunctionTs(wall, walls, len), len];
+  const raw: { region: number; from: number; to: number }[] = [];
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const from = bounds[i];
+    const to = bounds[i + 1];
+    if (to - from < 1) continue;
+    raw.push({ region: faceRegionAt(wall, plusSide, (from + to) / 2, rooms), from, to });
   }
-  segs[segs.length - 1].to = len;
+  // merge neighbouring stretches that landed in the same region
+  const segs: { region: number; from: number; to: number }[] = [];
+  for (const s of raw) {
+    const last = segs[segs.length - 1];
+    if (last && last.region === s.region) last.to = s.to;
+    else segs.push({ ...s });
+  }
+  if (segs.length) segs[segs.length - 1].to = len;
   return segs;
 }
 
@@ -184,6 +209,28 @@ export function regionFinish(elements: PlacedElement[], floor: number, region: n
 export function finishFacingPoint(elements: PlacedElement[], floor: number, p: Vec2): { textureId: string; color: string } | null {
   const rooms = roomsFor(elements, floor);
   return regionFinish(elements, floor, regionAt(rooms, p));
+}
+
+/** Which region an end-cap plane (A/B) belongs to, per the wall-plane rules:
+ * exterior (−1) when the wall has ANY exterior surface, else the interior room the
+ * cap end physically faces (just past that endpoint along the wall's axis). */
+export function capRegion(elements: PlacedElement[], floor: number, wall: Wall, end: 'a' | 'b'): number {
+  if (wallExteriorSide(elements, floor, wall) !== null) return -1;
+  const rooms = roomsFor(elements, floor);
+  const d = wallDir(wall);
+  const p = end === 'a' ? wall.a : wall.b;
+  const s = end === 'a' ? -1 : 1;
+  const off = wall.thickIn / 2 + 3;
+  return regionAt(rooms, { x: p.x + d.x * s * off, z: p.z + d.z * s * off });
+}
+
+/** This wall's OWN exterior-surface finish at `t`, or null if it has no exterior
+ * surface — so an exterior end-cap matches the envelope at this very wall. */
+export function wallExteriorFinishAt(elements: PlacedElement[], floor: number, wall: Wall, t: number): { textureId: string; color: string } | null {
+  const side = wallExteriorSide(elements, floor, wall);
+  if (side === null) return null;
+  // 'pos' = +normal side exterior (painted by faceNeg*); 'neg' = -normal (facePos*)
+  return side === 'pos' ? spanFinishAt(wall.faceNegSpans, wall.faceNeg, t) : spanFinishAt(wall.facePosSpans, wall.facePos, t);
 }
 
 /** Resolve the finish a single wall face shows at length `t`, EXACTLY as the
@@ -411,12 +458,13 @@ export function regroupClearPatches(before: PlacedElement[], after: PlacedElemen
  * continuous patch a paint click would cover. `plusSide` = the +normal side. */
 export function groupFaces(elements: PlacedElement[], floor: number, target: number): { wallId: string; plusSide: boolean; from: number; to: number }[] {
   const rooms = roomsFor(elements, floor);
+  const walls = floorWalls(elements, floor);
   const out: { wallId: string; plusSide: boolean; from: number; to: number }[] = [];
-  for (const w of floorWalls(elements, floor)) {
+  for (const w of walls) {
     const len = wallLen(w);
     if (len < 1) continue;
     for (const plusSide of [true, false]) {
-      for (const s of faceSegments(w, plusSide, rooms, len)) {
+      for (const s of faceSegments(w, plusSide, rooms, len, walls)) {
         if (s.region === target && s.to - s.from > 1) out.push({ wallId: w.id, plusSide, from: s.from, to: s.to });
       }
     }
@@ -427,15 +475,16 @@ export function groupFaces(elements: PlacedElement[], floor: number, target: num
 /** Span patches that paint every face in `target`'s group with `finish`. */
 export function paintGroupPatches(elements: PlacedElement[], floor: number, target: number, finish: { textureId: string; color: string }): GroupPatch[] {
   const rooms = detectEnclosedRegions(elements, floor);
+  const walls = floorWalls(elements, floor);
   const patches: GroupPatch[] = [];
-  for (const w of floorWalls(elements, floor)) {
+  for (const w of walls) {
     const len = wallLen(w);
     if (len < 1) continue;
     const patch: GroupPatch = { id: w.id };
     let touched = false;
     for (const plusSide of [true, false]) {
-      // ranges where this face borders the target group (ends snapped to corners)
-      const ranges = faceSegments(w, plusSide, rooms, len)
+      // ranges where this face borders the target group (bounded at junctions)
+      const ranges = faceSegments(w, plusSide, rooms, len, walls)
         .filter((s) => s.region === target)
         .map((s) => [s.from, s.to] as [number, number]);
       if (!ranges.length) continue;

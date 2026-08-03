@@ -294,7 +294,7 @@ function simplify(pts: Vec2[], tol: number): Vec2[] {
  * OUTSIDE from the grid border; unblocked cells the outside never reaches are
  * interior regions. Regions grow into the wall band like fills do.
  */
-export function detectEnclosedRegions(elements: PlacedElement[], floor: number): Vec2[][] {
+export function detectEnclosedRegions(elements: PlacedElement[], floor: number, dilate = 1): Vec2[][] {
   const walls = floorWalls(elements, floor);
   if (walls.length < 3) return [];
   const g = buildOccupancy(walls);
@@ -359,7 +359,9 @@ export function detectEnclosedRegions(elements: PlacedElement[], floor: number):
       }
     }
     if (count < MIN_CELLS) continue;
-    dilateIntoBlocked(mask, blocked, W, H, 1); // stop short of the centerline (see fillRegion)
+    // paint (dilate=1) stops short of the centerline for classification accuracy;
+    // ceilings pass a larger dilate so the slab covers the whole wall band and seals
+    dilateIntoBlocked(mask, blocked, W, H, dilate);
     const outline = traceMask(mask, g);
     if (outline) regions.push(dedupe(outline));
   }

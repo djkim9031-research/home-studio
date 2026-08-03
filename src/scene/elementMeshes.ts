@@ -4,7 +4,7 @@ import { COLORS, i2m, IN, JOIST_T } from '../constants';
 import { finishMaterial, finishRepeatPerIn } from '../data/registry';
 import { openingsOf, stairFootprint, wallDir, wallLen, wallPointAt } from '../core/validity';
 import { pointInPolygon } from '../core/geometry';
-import { edgeFinishFacing, spanFinishAt } from '../core/wallGroups';
+import { capRegion, edgeFinishFacing, regionFinish, spanFinishAt, wallExteriorFinishAt } from '../core/wallGroups';
 import {
   floorBaseIn,
   polygonSqft,
@@ -272,10 +272,15 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     floorWalls.some(
       (e) => e.id !== wall.id && (Math.hypot(e.a.x - p.x, e.a.z - p.z) <= weldTol || Math.hypot(e.b.x - p.x, e.b.z - p.z) <= weldTol),
     );
-  const capFinish = (t: number): { textureId: string; color: string } | null =>
-    spanFinishAt(wall.facePosSpans, wall.facePos, t) ?? spanFinishAt(wall.faceNegSpans, wall.faceNeg, t);
-  const endAFin = welds(wall.a) ? edgeFinishFacing(elements, wall.floor, wall.a, -dir.x, -dir.z, weldTol) : capFinish(0);
-  const endBFin = welds(wall.b) ? edgeFinishFacing(elements, wall.floor, wall.b, dir.x, dir.z, weldTol) : capFinish(len);
+  // FREE-end cap follows the plane rule: the wall's own exterior finish if it has
+  // an exterior surface, else the interior room the cap end faces.
+  const capFree = (end: 'a' | 'b', t: number): { textureId: string; color: string } | null => {
+    const region = capRegion(elements, wall.floor, wall, end);
+    if (region < 0) return wallExteriorFinishAt(elements, wall.floor, wall, t) ?? regionFinish(elements, wall.floor, -1);
+    return regionFinish(elements, wall.floor, region);
+  };
+  const endAFin = welds(wall.a) ? edgeFinishFacing(elements, wall.floor, wall.a, -dir.x, -dir.z, weldTol) : capFree('a', 0);
+  const endBFin = welds(wall.b) ? edgeFinishFacing(elements, wall.floor, wall.b, dir.x, dir.z, weldTol) : capFree('b', len);
   const endAMat = endAFin ? finishMat(endAFin) : mat;
   const endBMat = endBFin ? finishMat(endBFin) : mat;
 
@@ -346,6 +351,21 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     );
     if (here.length < 2) return; // nothing to join
     if (here.some((e) => e.id < wall.id)) return; // a lower-id wall owns this corner
+    // skip a T/cross junction where a wall runs STRAIGHT THROUGH p: that through-
+    // wall already covers the junction, so a post would overlap its coplanar face
+    // and z-fight (a dim wall-thick band). Only genuine corners (walls that turn)
+    // leave an outer notch that needs filling.
+    const dirFromP = (e: Wall): Vec2 => {
+      const atA = Math.hypot(e.a.x - p.x, e.a.z - p.z) <= weldTol;
+      const from = atA ? e.a : e.b;
+      const to = atA ? e.b : e.a;
+      const l = Math.hypot(to.x - from.x, to.z - from.z) || 1;
+      return { x: (to.x - from.x) / l, z: (to.z - from.z) / l };
+    };
+    const dirs = here.map(dirFromP);
+    for (let i = 0; i < dirs.length; i++)
+      for (let j = i + 1; j < dirs.length; j++)
+        if (dirs[i].x * dirs[j].x + dirs[i].z * dirs[j].z < -0.9) return; // collinear through p
     const geo = new THREE.BoxGeometry(i2m(wall.thickIn), i2m(wall.heightIn), i2m(wall.thickIn));
     // each post side takes ONLY its coplanar wall face's finish (bare if that
     // face is unpainted) — never borrowing a colour from elsewhere in the room

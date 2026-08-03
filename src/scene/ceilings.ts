@@ -86,7 +86,9 @@ export class Ceilings {
         group.remove(child);
         (child as THREE.Mesh).geometry?.dispose();
       }
-      const regions = detectEnclosedRegions(elements, f);
+      // dilate generously so the slab/ceiling reaches past the wall centrelines and
+      // fully seals the room (paint uses a tighter region; only stairs cut holes)
+      const regions = detectEnclosedRegions(elements, f, 4);
       if (!regions.length) continue;
       const wallTop = floorBaseIn(elements, f) + storyHeightIn(elements, f);
       // top of the slab = the storey above's finished floor; it extrudes DOWN by
