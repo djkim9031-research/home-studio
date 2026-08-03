@@ -10,8 +10,13 @@ const SIZE = 220;
 const PAD = 14;
 
 /** A little top-down plan of the floor you're building — walls, floors and
- * room labels, redrawn as you place things. */
-export function buildMinimap(root: HTMLElement, getFloor: () => FloorIndex): Minimap {
+ * room labels, redrawn as you place things. It spins to match where the camera
+ * is looking: the direction you face in 3D is "up" on the plan. */
+export function buildMinimap(
+  root: HTMLElement,
+  getFloor: () => FloorIndex,
+  getHeading: () => number,
+): Minimap {
   const panel = document.createElement('div');
   panel.className = 'hs-minimap';
   panel.innerHTML = `<div class="hs-mini-head" data-k="head"><span data-k="title">Floor plan</span><button class="hs-collapse" data-k="toggle" title="Collapse">▾</button></div>`;
@@ -43,13 +48,18 @@ export function buildMinimap(root: HTMLElement, getFloor: () => FloorIndex): Min
     g.clearRect(0, 0, SIZE, SIZE);
     g.fillStyle = '#f3efe6';
     g.fillRect(0, 0, SIZE, SIZE);
+    // the plan spins with the camera: forward (where you're looking) points up.
+    // heading = atan2(fx,−fz); rotating the plan by that angle sends forward to
+    // screen-up and drags the compass round with it.
+    const alpha = getHeading();
+
     if (!walls.length) {
       head.textContent = `Floor plan · ${tag}`;
       g.fillStyle = '#a99f8d';
       g.font = '12px system-ui';
       g.textAlign = 'center';
       g.fillText('draw walls to see the plan', SIZE / 2, SIZE / 2);
-      drawCompass(0);
+      drawCompass(alpha);
       return;
     }
 
@@ -63,26 +73,7 @@ export function buildMinimap(root: HTMLElement, getFloor: () => FloorIndex): Min
     ccx /= walls.length * 2;
     ccz /= walls.length * 2;
 
-    // north-up by default; once a main entrance is set, spin the plan so that
-    // door faces the bottom of the panel (its outward normal points south)
-    let alpha = 0;
-    const mainDoor = all.find((e): e is Opening => e.kind === 'door' && !!e.isMainEntrance);
-    const mainWall = mainDoor && all.find((e): e is Wall => e.kind === 'wall' && e.id === mainDoor.wallId);
-    if (mainDoor && mainWall) {
-      const len = Math.hypot(mainWall.b.x - mainWall.a.x, mainWall.b.z - mainWall.a.z) || 1;
-      const dx = (mainWall.b.x - mainWall.a.x) / len;
-      const dz = (mainWall.b.z - mainWall.a.z) / len;
-      let nx = -dz;
-      let nz = dx;
-      const doorX = mainWall.a.x + dx * mainDoor.centerIn;
-      const doorZ = mainWall.a.z + dz * mainDoor.centerIn;
-      if ((doorX - ccx) * nx + (doorZ - ccz) * nz < 0) {
-        nx = -nx;
-        nz = -nz;
-      }
-      alpha = -Math.atan2(nx, nz); // rotate the outward normal onto +z (screen down)
-    }
-    head.textContent = `Floor plan · ${tag}${mainDoor ? ' · entrance ↓' : ' · N ↑'}`;
+    head.textContent = `Floor plan · ${tag}`;
 
     const cos = Math.cos(alpha);
     const sin = Math.sin(alpha);

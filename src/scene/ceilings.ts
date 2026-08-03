@@ -17,14 +17,26 @@ export class Ceilings {
   private groups = new Map<FloorIndex, THREE.Group>();
   private keys = new Map<FloorIndex, string>();
   private mat: THREE.MeshStandardMaterial;
+  private matAbove: THREE.MeshStandardMaterial;
 
   constructor(parent: THREE.Group) {
     this.parent = parent;
+    // the floor you're building on: ceiling faces down only, so it's invisible
+    // from above and you can keep working
     this.mat = new THREE.MeshStandardMaterial({
       color: 0xf4f1ea,
       roughness: 0.95,
       metalness: 0,
       side: THREE.FrontSide,
+      shadowSide: THREE.DoubleSide,
+    });
+    // a floor BELOW the one you're viewing: a solid white cap visible from above
+    // too, so the lower storey reads as enclosed until a real upper floor is built
+    this.matAbove = new THREE.MeshStandardMaterial({
+      color: 0xfbfaf7,
+      roughness: 0.95,
+      metalness: 0,
+      side: THREE.DoubleSide,
       shadowSide: THREE.DoubleSide,
     });
     for (const f of FLOORS) {
@@ -36,9 +48,15 @@ export class Ceilings {
     }
   }
 
-  /** Floors above the active one hide with the rest of the build. */
+  /** Floors above the active one hide with the rest of the build. A floor BELOW
+   * the active one shows a solid white ceiling from above (it's enclosed now);
+   * the active floor's own ceiling stays down-facing so you can keep building. */
   applyVisibility(activeFloor: FloorIndex): void {
-    for (const [f, g] of this.groups) g.visible = f <= activeFloor;
+    for (const [f, g] of this.groups) {
+      g.visible = f <= activeFloor;
+      const m = f < activeFloor ? this.matAbove : this.mat;
+      for (const child of g.children) (child as THREE.Mesh).material = m;
+    }
   }
 
   /** Rebuild changed floors (keyed on that floor's wall geometry). */

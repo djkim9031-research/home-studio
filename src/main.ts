@@ -202,7 +202,20 @@ const sunPanel = buildSunPanel(editorEl, (s) => host.applySun(sunToInput(s)));
 const palette = buildPalette(editorEl, armFromSpec);
 const placedPanel = buildPlacedPanel(rightCol);
 const editPanel = buildEditPanel(rightCol, toast);
-const minimap = buildMinimap(editorEl, () => store.getState().activeFloor);
+// heading the camera faces, in radians (0 = looking north/−z, +π/2 = east/+x) —
+// the floor plan spins by this so "forward" is always up on the plan.
+const cameraHeading = (): number =>
+  Math.atan2(rig.controls.target.x - rig.camera.position.x, rig.camera.position.z - rig.controls.target.z);
+const minimap = buildMinimap(editorEl, () => store.getState().activeFloor, cameraHeading);
+// redraw the plan as the camera orbits (throttled to ~1° of heading change)
+let lastMiniHeading = 999;
+host.onFrame(() => {
+  const h = cameraHeading();
+  if (Math.abs(h - lastMiniHeading) < 0.017) return false;
+  lastMiniHeading = h;
+  minimap.refresh();
+  return false;
+});
 
 // ---- project routing -------------------------------------------------------
 
