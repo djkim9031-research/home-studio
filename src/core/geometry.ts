@@ -196,3 +196,14 @@ export function normalizeDeg(a: number): number {
   if (d < 0) d += 360;
   return d;
 }
+
+/** Rotate a plan point `deg` degrees about `pivot` (positive = CCW in the x→z
+ * plane, matching a +Y-axis yaw). */
+export function rotatePoint(p: Vec2, pivot: Vec2, deg: number): Vec2 {
+  const r = (deg * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  const dx = p.x - pivot.x;
+  const dz = p.z - pivot.z;
+  return { x: pivot.x + dx * c - dz * s, z: pivot.z + dx * s + dz * c };
+}

@@ -62,6 +62,8 @@ export interface ToolContext {
   onDisarm(): void;
   /** hand off a deferred placement to the location finetuner */
   beginFinetune(req: FinetuneRequest): void;
+  /** fly the camera to a bird's-eye view centred on a clicked wall corner */
+  flyToCorner(p: Vec2): void;
 }
 
 const grid = (v: number): number => Math.round(v / SNAP.grid) * SNAP.grid;
@@ -245,6 +247,21 @@ export class WallTool implements Tool {
   private ctx: ToolContext;
   private a: Vec2 | null = null;
   private lastB: Vec2 | null = null;
+  private armedAnchor: Vec2 | null = null; // a clicked corner to draw the next wall from
+  private cornerDown: Vec2 | null = null; // corner under a press, promoted to an anchor if not dragged
+  private downClient: { x: number; y: number } | null = null;
+
+  /** The wall corner (endpoint) under the cursor, if the click landed on one. */
+  private cornerAt(ev: PointerEvent): Vec2 | null {
+    const hit = this.ctx.pickWall(ev);
+    if (!hit) return null;
+    const w = wallsOn(store.getState().activeFloor).find((x) => x.id === hit.wallId);
+    if (!w) return null;
+    const da = Math.hypot(w.a.x - hit.point.x, w.a.z - hit.point.z);
+    const db = Math.hypot(w.b.x - hit.point.x, w.b.z - hit.point.z);
+    if (Math.min(da, db) > 12) return null; // not near an endpoint corner
+    return da < db ? { x: w.a.x, z: w.a.z } : { x: w.b.x, z: w.b.z };
+  }
 
   constructor(arm: Partial<WallArm>, ctx: ToolContext) {
     this.arm = {
@@ -330,14 +347,28 @@ export class WallTool implements Tool {
     return { x: this.a.x + Math.cos(rad) * L, z: this.a.z + Math.sin(rad) * L };
   }
 
-  onDown(floor: Vec2 | null): boolean {
+  onDown(floor: Vec2 | null, ev: PointerEvent): boolean {
     if (!floor) return false;
-    this.a = this.snapA(floor);
+    this.downClient = { x: ev.clientX, y: ev.clientY };
+    if (this.armedAnchor) {
+      // the next stroke draws from the corner the user just clicked (and flew to)
+      this.a = this.armedAnchor;
+      this.armedAnchor = null;
+      this.cornerDown = null;
+      store.setAnchor(null);
+      return true;
+    }
+    // a press on a corner becomes a fly-to-anchor if it's a click (no drag)
+    const corner = this.cornerAt(ev);
+    this.cornerDown = corner;
+    this.a = corner ?? this.snapA(floor);
     return true;
   }
 
-  onMove(floor: Vec2 | null): void {
+  onMove(floor: Vec2 | null, ev: PointerEvent): void {
     if (!this.a || !floor) return;
+    // once the press turns into a drag, it's a normal draw, not a corner anchor
+    if (this.cornerDown && this.downClient && Math.hypot(ev.clientX - this.downClient.x, ev.clientY - this.downClient.y) > 6) this.cornerDown = null;
     let ra = this.a;
     let rb: Vec2;
     if (this.arm.shape === 'line') rb = this.snapB(floor);
@@ -361,7 +392,24 @@ export class WallTool implements Tool {
     });
   }
 
-  onUp(floor: Vec2 | null): void {
+  onUp(floor: Vec2 | null, ev: PointerEvent): void {
+    // a click (no drag) on a wall corner: fly to a bird's-eye centred on it and
+    // arm it as the anchor, showing a red point to draw the next wall from
+    const moved = this.downClient ? Math.hypot(ev.clientX - this.downClient.x, ev.clientY - this.downClient.y) > 6 : false;
+    if (this.cornerDown && !moved) {
+      const corner = this.cornerDown;
+      this.cornerDown = null;
+      this.a = null;
+      store.setGhost(null);
+      this.armedAnchor = corner;
+      const s = store.getState();
+      store.setAnchor({ x: corner.x, y: floorBaseIn(s.elements, s.activeFloor) + this.arm.heightIn, z: corner.z });
+      this.ctx.flyToCorner(corner);
+      this.ctx.toast('Anchored to corner — drag from the red point to draw a wall.');
+      return;
+    }
+    this.cornerDown = null;
+    this.armedAnchor = null;
     if (!this.a) return;
     const anchor = this.a;
     this.a = null;
@@ -497,6 +545,9 @@ export class WallTool implements Tool {
   cancel(): void {
     this.a = null;
     this.lastB = null;
+    this.armedAnchor = null;
+    this.cornerDown = null;
+    store.setAnchor(null);
     store.setGhost(null);
   }
 }
@@ -1298,6 +1349,137 @@ export class RoomTool implements Tool {
   onHover(): void {}
 
   cancel(): void {
+    store.setGhost(null);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Demolish: drag along a wall to remove the straight line it belongs to,
+// bounded end-to-end by the nearest junctions (where other walls meet the line).
+// ---------------------------------------------------------------------------
+
+/** The collinear wall run a demolish drag would remove: every wall lying on the
+ * seed's straight line, clamped end-to-end to the nearest junctions (where a
+ * non-collinear wall meets or crosses the line) bracketing the hit point. Pure
+ * so it can be unit-tested without the 3D pick. */
+export function demolishRun(
+  walls: Wall[],
+  seed: Wall,
+  hitPoint: Vec2,
+): { ids: string[]; a: Vec2; b: Vec2; heightIn: number; thickIn: number } | null {
+  {
+    const dir = wallDir(seed);
+    const O = seed.a;
+    const proj = (p: Vec2): number => (p.x - O.x) * dir.x + (p.z - O.z) * dir.z;
+    const perp = (p: Vec2): number => Math.abs((p.x - O.x) * -dir.z + (p.z - O.z) * dir.x);
+    const band = seed.thickIn / 2 + 3;
+    const parallel = (w: Wall): boolean => {
+      const dwx = w.b.x - w.a.x;
+      const dwz = w.b.z - w.a.z;
+      const wl = Math.hypot(dwx, dwz) || 1;
+      return Math.abs((dir.x * dwz - dir.z * dwx) / wl) < 0.03;
+    };
+    const isCollinear = (w: Wall): boolean => parallel(w) && perp(w.a) <= band && perp(w.b) <= band;
+    // every wall lying on the seed's infinite line, with its span [lo,hi] along it
+    const spans = walls.filter(isCollinear).map((w) => {
+      const ta = proj(w.a);
+      const tb = proj(w.b);
+      return { id: w.id, lo: Math.min(ta, tb), hi: Math.max(ta, tb) };
+    });
+    spans.sort((p, q) => p.lo - q.lo);
+    // the maximal continuous stretch of collinear walls containing the hit
+    const merged: { lo: number; hi: number }[] = [];
+    for (const s of spans) {
+      const last = merged[merged.length - 1];
+      if (last && s.lo <= last.hi + 6) last.hi = Math.max(last.hi, s.hi);
+      else merged.push({ lo: s.lo, hi: s.hi });
+    }
+    const hitT = proj(hitPoint);
+    const runIv = merged.find((m) => hitT >= m.lo - 1 && hitT <= m.hi + 1) ?? merged[0];
+    if (!runIv) return null;
+    // junctions inside the stretch: where a NON-collinear wall touches the line
+    const junctions: number[] = [];
+    for (const w of walls) {
+      if (isCollinear(w)) continue;
+      for (const p of [w.a, w.b]) {
+        if (perp(p) <= band) {
+          const t = proj(p);
+          if (t > runIv.lo + 1 && t < runIv.hi - 1) junctions.push(t);
+        }
+      }
+      // a wall CROSSING the line (an X-junction) also bounds the run
+      const s0 = perp(w.a) * ((w.a.x - O.x) * -dir.z + (w.a.z - O.z) * dir.x >= 0 ? 1 : -1);
+      const s1 = perp(w.b) * ((w.b.x - O.x) * -dir.z + (w.b.z - O.z) * dir.x >= 0 ? 1 : -1);
+      if (s0 * s1 < 0) {
+        const f = perp(w.a) / (perp(w.a) + perp(w.b) || 1);
+        const cx = w.a.x + (w.b.x - w.a.x) * f;
+        const cz = w.a.z + (w.b.z - w.a.z) * f;
+        const t = proj({ x: cx, z: cz });
+        if (t > runIv.lo + 1 && t < runIv.hi - 1) junctions.push(t);
+      }
+    }
+    let loT = runIv.lo;
+    let hiT = runIv.hi;
+    for (const t of junctions) {
+      if (t <= hitT && t > loT) loT = t;
+      if (t >= hitT && t < hiT) hiT = t;
+    }
+    // whole collinear walls inside the junction-bounded interval — plus the seed
+    // itself, so the wall you clicked is always removed even if a junction cuts it
+    const ids = spans.filter((s) => s.id === seed.id || (s.lo >= loT - 1 && s.hi <= hiT + 1)).map((s) => s.id);
+    if (!ids.length) return null;
+    return { ids, a: { x: O.x + dir.x * loT, z: O.z + dir.z * loT }, b: { x: O.x + dir.x * hiT, z: O.z + dir.z * hiT }, heightIn: seed.heightIn, thickIn: seed.thickIn };
+  }
+}
+
+export class RemoveWallTool implements Tool {
+  private ctx: ToolContext;
+  private down = false;
+  private run: { ids: string[]; a: Vec2; b: Vec2; heightIn: number; thickIn: number } | null = null;
+
+  constructor(ctx: ToolContext) {
+    this.ctx = ctx;
+  }
+
+  private preview(ev: PointerEvent): void {
+    const hit = this.ctx.pickWall(ev);
+    const s = store.getState();
+    const seed = hit ? s.elements.find((e): e is Wall => e.kind === 'wall' && e.id === hit.wallId) : undefined;
+    this.run = hit && seed ? demolishRun(wallsOn(s.activeFloor), seed, hit.point) : null;
+    if (!this.run) {
+      store.setGhost(null);
+      return;
+    }
+    store.setGhost({ kind: 'wall', floor: store.getState().activeFloor, runs: [{ a: this.run.a, b: this.run.b }], heightIn: this.run.heightIn, thickIn: this.run.thickIn, valid: false, label: 'demolish' });
+  }
+
+  onHover(_floor: Vec2 | null, ev: PointerEvent): void {
+    if (!this.down) this.preview(ev);
+  }
+
+  onDown(_floor: Vec2 | null, ev: PointerEvent): boolean {
+    this.preview(ev);
+    this.down = true;
+    return this.run !== null;
+  }
+
+  onMove(_floor: Vec2 | null, ev: PointerEvent): void {
+    this.preview(ev);
+  }
+
+  onUp(): void {
+    this.down = false;
+    const run = this.run;
+    this.run = null;
+    store.setGhost(null);
+    if (!run) return;
+    store.deleteElements(run.ids);
+    this.ctx.toast(`Removed ${run.ids.length} wall${run.ids.length > 1 ? 's' : ''}.`);
+  }
+
+  cancel(): void {
+    this.down = false;
+    this.run = null;
     store.setGhost(null);
   }
 }

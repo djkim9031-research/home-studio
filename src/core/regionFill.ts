@@ -191,8 +191,11 @@ export function fillRegion(elements: PlacedElement[], floor: number, at: Vec2): 
   }
   if (escaped) return { ok: false, reason: 'open' };
 
-  // reach under the walls: claim the adjacent blocked band up to ~centerline
-  dilateIntoBlocked(filled, blocked, W, H, 2);
+  // reach under the walls toward — but not PAST — the centerline. One cell (~3")
+  // from the ~3.85" blocked half-band stops just short of the centerline, so a
+  // room polygon never spills onto the far side of a wall (which used to make
+  // adjacent rooms' polygons overlap and mis-classify painted faces).
+  dilateIntoBlocked(filled, blocked, W, H, 1);
 
   const outline = traceMask(filled, g);
   if (!outline) return { ok: false, reason: 'tiny' };
@@ -356,7 +359,7 @@ export function detectEnclosedRegions(elements: PlacedElement[], floor: number):
       }
     }
     if (count < MIN_CELLS) continue;
-    dilateIntoBlocked(mask, blocked, W, H, 2);
+    dilateIntoBlocked(mask, blocked, W, H, 1); // stop short of the centerline (see fillRegion)
     const outline = traceMask(mask, g);
     if (outline) regions.push(dedupe(outline));
   }

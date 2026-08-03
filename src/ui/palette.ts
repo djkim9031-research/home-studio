@@ -11,6 +11,7 @@ export type ArmSpec =
   | { tool: 'fill'; textureId: string; color: string }
   | { tool: 'paint'; textureId: string; color: string }
   | { tool: 'wallpaper'; textureId: string; color: string; widthIn: number; heightIn: number; offXIn: number; offYIn: number }
+  | { tool: 'removeWall' }
   | { tool: 'room' };
 
 export interface Palette {
@@ -147,6 +148,7 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
         textureId: 'paint',
         color: '#f2eee6',
       })),
+      card(THUMBS.wall, 'Demolish — drag along a wall to remove that straight line, end to end between the nearest junctions.', [], () => ({ tool: 'removeWall' })),
     ]);
   }
 

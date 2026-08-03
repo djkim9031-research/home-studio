@@ -106,6 +106,16 @@ export class CameraRig {
     this.controls.update();
   }
 
+  /** Tween to the bird's-eye angle centred on a point, at the regular span —
+   * used to re-frame on a clicked wall corner before drawing from it. */
+  flyTo(center: { x: number; z: number }, halfSpanM: number): void {
+    if (this.mode === 'stand') this.exitStand();
+    const d = Math.max(9, halfSpanM * 1.9);
+    const target = new THREE.Vector3(center.x, TARGET_Y, center.z);
+    const pos = new THREE.Vector3(center.x + d * 0.18, TARGET_Y + d * 0.6, center.z + d * 1.02);
+    this.startTween(pos, target, 320);
+  }
+
   setAspect(aspect: number): void {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();

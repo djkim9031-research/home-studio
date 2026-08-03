@@ -175,22 +175,10 @@ export function buildMinimap(
       g.font = 'bold 10px system-ui';
     }
 
-    // overall plan size as fixed dimension arrows: the WORLD bounding extents
-    // (not the rotated span), so the numbers stay put at every camera angle
-    let wMinX = Infinity;
-    let wMaxX = -Infinity;
-    let wMinZ = Infinity;
-    let wMaxZ = -Infinity;
-    for (const w of walls) {
-      for (const p of [w.a, w.b]) {
-        wMinX = Math.min(wMinX, p.x);
-        wMaxX = Math.max(wMaxX, p.x);
-        wMinZ = Math.min(wMinZ, p.z);
-        wMaxZ = Math.max(wMaxZ, p.z);
-      }
-    }
-    dimArrow(false, 8, PAD, SIZE - PAD, formatFeetInches(wMaxX - wMinX)); // width, across the top
-    dimArrow(true, 8, PAD, SIZE - PAD, formatFeetInches(wMaxZ - wMinZ)); // depth, down the left edge
+    // plan size as dimension arrows measuring the CURRENT on-screen extents: the
+    // rotated bounding span, so length/width update as the plan turns with the camera
+    dimArrow(false, 8, PAD, SIZE - PAD, formatFeetInches(spanX)); // width, across the top
+    dimArrow(true, 8, PAD, SIZE - PAD, formatFeetInches(spanZ)); // depth, down the left edge
 
     drawCompass(alpha);
   };

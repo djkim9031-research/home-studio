@@ -23,9 +23,38 @@ function floorWalls(elements: PlacedElement[], floor: number): Wall[] {
   return elements.filter((e): e is Wall => e.kind === 'wall' && e.floor === floor);
 }
 
+/** Perpendicular distance from `p` to the nearest edge of `poly` (how deep `p`
+ * sits inside it). Used to break ties when dilated room polygons still overlap. */
+function polyDepth(p: Vec2, poly: Vec2[]): number {
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const abx = b.x - a.x;
+    const abz = b.z - a.z;
+    const l2 = abx * abx + abz * abz || 1;
+    const u = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.z - a.z) * abz) / l2));
+    best = Math.min(best, Math.hypot(a.x + abx * u - p.x, a.z + abz * u - p.z));
+  }
+  return best;
+}
+
+/** The region a point sits in. When room polygons overlap (they dilate into the
+ * wall band), `p` can be inside more than one — pick the room it is MOST interior
+ * to (deepest), so a face is classed by the room it actually borders rather than
+ * by scan order. Exterior (−1) when inside none. */
 function regionAt(rooms: Vec2[][], p: Vec2): number {
-  for (let i = 0; i < rooms.length; i++) if (pointInPolygon(p, rooms[i])) return i;
-  return -1; // exterior
+  let best = -1;
+  let bestDepth = 0;
+  for (let i = 0; i < rooms.length; i++) {
+    if (!pointInPolygon(p, rooms[i])) continue;
+    const depth = polyDepth(p, rooms[i]);
+    if (best < 0 || depth > bestDepth) {
+      best = i;
+      bestDepth = depth;
+    }
+  }
+  return best;
 }
 
 /** The region a wall face borders at length `t` along the wall. */

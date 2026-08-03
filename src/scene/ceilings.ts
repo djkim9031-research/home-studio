@@ -23,14 +23,26 @@ export class Ceilings {
   private groups = new Map<FloorIndex, THREE.Group>();
   private keys = new Map<FloorIndex, string>();
   private mat: THREE.MeshStandardMaterial;
+  private shadowMat: THREE.MeshStandardMaterial;
 
   constructor(parent: THREE.Group) {
-    // solid, light-sealing, visible from every side (it's a real floor/ceiling)
+    // a floor BELOW the active one: a solid, light-sealing slab, visible from every
+    // side (it's the real floor you stand on upstairs / the ceiling of the room below)
     this.mat = new THREE.MeshStandardMaterial({
       color: 0xfbfaf7,
       roughness: 0.95,
       metalness: 0,
       side: THREE.DoubleSide,
+      shadowSide: THREE.DoubleSide,
+    });
+    // the ACTIVE floor's own ceiling: faces DOWN only, so it's invisible from above
+    // (you keep building and looking in) yet `shadowSide: DoubleSide` still blocks the
+    // sun — so an enclosed, windowless room sits in shadow instead of catching rays.
+    this.shadowMat = new THREE.MeshStandardMaterial({
+      color: 0xf4f1ea,
+      roughness: 0.95,
+      metalness: 0,
+      side: THREE.FrontSide,
       shadowSide: THREE.DoubleSide,
     });
     for (const f of FLOORS) {
@@ -42,11 +54,16 @@ export class Ceilings {
     }
   }
 
-  /** Show a storey's slab only when you're viewing a floor ABOVE it — the lower
-   * storey is then enclosed and its slab is the floor you stand on. The active
-   * floor (and anything above) stays open so you can keep building. */
+  /** A floor BELOW the active one shows its solid slab (the enclosed storey's
+   * finished floor). The ACTIVE floor shows its down-facing shadow ceiling —
+   * invisible from above so you keep building, but it blocks the sun so sealed
+   * rooms stay dark. Floors above are hidden entirely. */
   applyVisibility(activeFloor: FloorIndex): void {
-    for (const [f, g] of this.groups) g.visible = f < activeFloor;
+    for (const [f, g] of this.groups) {
+      g.visible = f <= activeFloor;
+      const want = f < activeFloor ? 'slab' : 'shadowCeil';
+      for (const child of g.children) child.visible = child.userData.role === want;
+    }
   }
 
   /** Rebuild changed floors (keyed on that floor's wall geometry). */
@@ -71,15 +88,17 @@ export class Ceilings {
       }
       const regions = detectEnclosedRegions(elements, f);
       if (!regions.length) continue;
+      const wallTop = floorBaseIn(elements, f) + storyHeightIn(elements, f);
       // top of the slab = the storey above's finished floor; it extrudes DOWN by
       // JOIST_T so its underside sits flush with this storey's wall tops.
-      const top = i2m(floorBaseIn(elements, f) + storyHeightIn(elements, f) + JOIST_T);
+      const slabTop = i2m(wallTop + JOIST_T);
+      const ceilY = i2m(wallTop - 0.3); // the active floor's down-facing shadow ceiling
       for (const polygon of regions) {
         const shape = new THREE.Shape();
         polygon.forEach((p, i) => (i === 0 ? shape.moveTo(p.x, p.z) : shape.lineTo(p.x, p.z)));
         shape.closePath();
-        // a stair rising out of this room needs a stairwell: cut its footprint
-        // out of the slab so it doesn't seal the flight into a solid floor above
+        // a stair rising out of this room needs a stairwell: cut its footprint out
+        // so neither the slab nor the ceiling seals the flight or blocks its light
         for (const st of stairs) {
           if (!pointInPolygon({ x: st.x, z: st.z }, polygon)) continue;
           const fp = stairFootprint(st);
@@ -88,17 +107,33 @@ export class Ceilings {
           hole.closePath();
           shape.holes.push(hole);
         }
-        const geo = new THREE.ExtrudeGeometry(shape, { depth: JOIST_T, bevelEnabled: false });
+
+        // (1) solid inter-floor slab — shown when this floor is BELOW the active one
+        const slab = new THREE.ExtrudeGeometry(shape, { depth: JOIST_T, bevelEnabled: false });
         // shape is in the XY plane extruded along +Z; rotateX(+90°) lays it into
         // the XZ plane with the extrude running DOWN (−Y) from the mesh origin.
-        geo.rotateX(Math.PI / 2);
-        geo.scale(IN, IN, IN);
-        geo.computeVertexNormals();
-        const mesh = new THREE.Mesh(geo, this.mat);
-        mesh.position.y = top;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        group.add(mesh);
+        slab.rotateX(Math.PI / 2);
+        slab.scale(IN, IN, IN);
+        slab.computeVertexNormals();
+        const slabMesh = new THREE.Mesh(slab, this.mat);
+        slabMesh.position.y = slabTop;
+        slabMesh.castShadow = true;
+        slabMesh.receiveShadow = true;
+        slabMesh.userData.role = 'slab';
+        group.add(slabMesh);
+
+        // (2) thin down-facing shadow ceiling — shown when this IS the active floor;
+        // invisible from above but casts the sun's shadow so sealed rooms go dark
+        const ceil = new THREE.ShapeGeometry(shape);
+        ceil.rotateX(Math.PI / 2); // face DOWN (normal −y)
+        ceil.scale(IN, IN, IN);
+        ceil.computeVertexNormals();
+        const ceilMesh = new THREE.Mesh(ceil, this.shadowMat);
+        ceilMesh.position.y = ceilY;
+        ceilMesh.castShadow = true;
+        ceilMesh.receiveShadow = true;
+        ceilMesh.userData.role = 'shadowCeil';
+        group.add(ceilMesh);
       }
     }
     return changed;

@@ -12,7 +12,7 @@ import { moonState, sunPosition } from './scene/sun';
 import { i2m } from './constants';
 import * as store from './state/store';
 import { exportProject, getProject, listProjects, saveProject } from './state/projects';
-import { FloorFillTool, OpeningTool, RoomTool, SelectTool, StairTool, WallPaintTool, WallpaperTool, WallTool, type FinetuneRequest, type Tool, type ToolContext } from './interact/buildTools';
+import { FloorFillTool, OpeningTool, RemoveWallTool, RoomTool, SelectTool, StairTool, WallPaintTool, WallpaperTool, WallTool, type FinetuneRequest, type Tool, type ToolContext } from './interact/buildTools';
 import { PointerController } from './interact/pointer';
 import { installKeyboard } from './interact/keyboard';
 import { buildLanding } from './ui/landing';
@@ -20,7 +20,9 @@ import { buildPalette, type ArmSpec } from './ui/palette';
 import { buildPlacedPanel } from './ui/placedPanel';
 import { buildEditPanel } from './ui/editPanel';
 import { detectEnclosedRegions } from './core/regionFill';
-import { paintGroupPatches } from './core/wallGroups';
+import { paintGroupPatches, wallExteriorSide } from './core/wallGroups';
+import { normalizeDeg, rotatePoint } from './core/geometry';
+import { wallDir, wallPointAt } from './core/validity';
 import { buildCompass } from './ui/compass';
 import { buildFinetunePanel } from './ui/finetune';
 import { buildMinimap } from './ui/minimap';
@@ -131,6 +133,7 @@ const toolCtx: ToolContext = {
   cameraPlanePos: () => ({ x: rig.camera.position.x / i2m(1), z: rig.camera.position.z / i2m(1) }),
   onDisarm: () => disarm(),
   beginFinetune,
+  flyToCorner: (p) => rig.flyTo({ x: i2m(p.x), z: i2m(p.z) }, i2m(200)),
 };
 
 const selectTool = new SelectTool({ ...toolCtx, pickElement: (ev) => pointer.pickElement(ev) });
@@ -165,6 +168,9 @@ function armFromSpec(spec: ArmSpec, card: HTMLElement): void {
       break;
     case 'wallpaper':
       tool = new WallpaperTool(spec, toolCtx);
+      break;
+    case 'removeWall':
+      tool = new RemoveWallTool(toolCtx);
       break;
     case 'room':
       tool = new RoomTool(toolCtx);
@@ -216,6 +222,81 @@ host.onFrame(() => {
   minimap.refresh();
   return false;
 });
+
+// ---- building orientation (rotate the whole building to X° from north) ------
+
+/** The main-entrance door + its wall, or null when none is set. */
+function mainEntrance(): { door: import('./types').Opening; wall: import('./types').Wall } | null {
+  const els = store.getState().elements;
+  const door = els.find((e): e is import('./types').Opening => e.kind === 'door' && !!e.isMainEntrance);
+  if (!door) return null;
+  const wall = els.find((e): e is import('./types').Wall => e.kind === 'wall' && e.id === door.wallId);
+  return wall ? { door, wall } : null;
+}
+
+/** Compass bearing (0–360, 0 = north/−z, 90 = east/+x) the front door faces. */
+function frontDoorBearing(): number | null {
+  const me = mainEntrance();
+  if (!me) return null;
+  const d = wallDir(me.wall);
+  const nPos = { x: -d.z, z: d.x }; // +normal side (faceNeg*)
+  const side = wallExteriorSide(store.getState().elements, me.wall.floor, me.wall);
+  // exterior 'pos' → outward is −nPos; else (incl. shared) → +nPos
+  const out = side === 'pos' ? { x: -nPos.x, z: -nPos.z } : nPos;
+  return normalizeDeg((Math.atan2(out.x, -out.z) * 180) / Math.PI);
+}
+
+/** Rotate every element so the front door faces the absolute bearing `target`. */
+function orientBuilding(target: number): void {
+  const me = mainEntrance();
+  const cur = frontDoorBearing();
+  if (!me || cur === null) return;
+  const rot = normalizeDeg(target) - cur; // degrees to add to the door bearing
+  if (Math.abs(rot) < 0.01) return;
+  const pivot = wallPointAt(me.wall, me.door.centerIn);
+  const batch = store
+    .getState()
+    .elements.map((e) => {
+      if (e.kind === 'wall') return { id: e.id, patch: { a: rotatePoint(e.a, pivot, rot), b: rotatePoint(e.b, pivot, rot) } as never };
+      if (e.kind === 'stair') {
+        const np = rotatePoint({ x: e.x, z: e.z }, pivot, rot);
+        return { id: e.id, patch: { x: np.x, z: np.z, yawDeg: normalizeDeg(e.yawDeg + rot) } as never };
+      }
+      if (e.kind === 'slab' || e.kind === 'room') return { id: e.id, patch: { polygon: e.polygon.map((p) => rotatePoint(p, pivot, rot)) } as never };
+      return null;
+    })
+    .filter((x): x is { id: string; patch: never } => x !== null);
+  store.updateElementsBatch(batch);
+}
+
+// panel directly above the floor-plan minimap
+const orientPanel = document.createElement('div');
+orientPanel.className = 'hs-minimap hs-orient';
+orientPanel.innerHTML = `<div class="hs-mini-head"><span>Orientation</span></div>`;
+const orientRow = document.createElement('label');
+orientRow.className = 'hs-pal-field';
+orientRow.style.cssText = 'display:flex;gap:6px;align-items:center;padding:2px 2px 0';
+orientRow.innerHTML = '<span>front door °&nbsp;from&nbsp;N</span>';
+const orientInput = document.createElement('input');
+orientInput.type = 'number';
+orientInput.min = '0';
+orientInput.max = '360';
+orientInput.step = '1';
+orientInput.style.width = '56px';
+orientRow.appendChild(orientInput);
+orientPanel.appendChild(orientRow);
+editorEl.appendChild(orientPanel);
+orientInput.addEventListener('change', () => {
+  const v = Number(orientInput.value);
+  if (Number.isFinite(v)) orientBuilding(((v % 360) + 360) % 360);
+});
+function refreshOrient(): void {
+  const b = frontDoorBearing();
+  orientInput.disabled = b === null;
+  orientPanel.classList.toggle('disabled', b === null);
+  if (b !== null && document.activeElement !== orientInput) orientInput.value = String(Math.round(b));
+  if (b === null) orientInput.value = '';
+}
 
 // ---- project routing -------------------------------------------------------
 
@@ -322,6 +403,7 @@ store.subscribe((s, ev) => {
     placedPanel.refresh();
     editPanel.refresh();
     minimap.refresh();
+    refreshOrient();
     host.invalidateShadows();
     if (currentProject) {
       currentProject.elements = s.elements;
@@ -642,6 +724,30 @@ if (params.get('qa') === 'regroup') {
     rig.toDefaultView();
   }, 2600);
 }
+if (params.get('qa') === 'repaintfix') {
+  // load a fixture via #loadtest, strip its stored spans, and REPAINT exterior +
+  // each detected room with the current classifier — shows whether faces group right
+  setTimeout(() => {
+    const walls0 = store.getState().elements.filter((e) => e.kind === 'wall');
+    store.updateElementsBatch(walls0.map((e) => ({ id: e.id, patch: { facePosSpans: [], faceNegSpans: [] } as never })));
+    const apply = (target: number, finish: { textureId: string; color: string }): void => {
+      const patches = paintGroupPatches(store.getState().elements, 0, target, finish);
+      store.updateElementsBatch(
+        patches.map((pt) => {
+          const patch: Record<string, unknown> = {};
+          if (pt.facePosSpans) patch.facePosSpans = pt.facePosSpans;
+          if (pt.faceNegSpans) patch.faceNegSpans = pt.faceNegSpans;
+          return { id: pt.id, patch: patch as never };
+        }),
+      );
+    };
+    apply(-1, { textureId: 'brick', color: '#c76f4a' });
+    const cols = ['#8fb0d0', '#d8e2d0', '#e6c9a8', '#c9b6d8', '#d9b0a0', '#b0c4a0'];
+    const n = detectEnclosedRegions(store.getState().elements, 0).length;
+    for (let i = 0; i < n; i++) apply(i, { textureId: 'paint', color: cols[i % cols.length] });
+    rig.toDefaultView();
+  }, 3500);
+}
 if (params.get('qa') === 'paintgroup') {
   // two rooms sharing a wall: paint each interior + the exterior via groups
   setTimeout(() => {
@@ -890,6 +996,62 @@ if (params.get('qa') === 'crossing') {
     const t = `QACROSS pos=[${fmt(c?.facePosSpans)}] neg=[${fmt(c?.faceNegSpans)}]`;
     setInterval(() => (document.title = t), 400);
   }, 2200);
+}
+if (params.get('qa') === 'corner') {
+  // click a wall's top corner → anchor armed + camera flies; then draw from it
+  setTimeout(() => {
+    pointer.setTool(new WallTool({ shape: 'line' }, toolCtx));
+    const rect = host.canvas.getBoundingClientRect();
+    const scr = (xIn: number, yIn: number, zIn: number): { x: number; y: number } => {
+      const v = new THREE.Vector3(i2m(xIn), i2m(yIn), i2m(zIn)).project(rig.camera);
+      return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
+    };
+    const pe = (t: string, p: { x: number; y: number }, id: number): PointerEvent => new PointerEvent(t, { clientX: p.x, clientY: p.y, pointerId: id, button: 0, bubbles: true });
+    const c = scr(192, 96, 0); // south wall's east top corner
+    viewport.dispatchEvent(pe('pointerdown', c, 3));
+    viewport.dispatchEvent(pe('pointerup', c, 3));
+    const armed = !!store.getState().anchorMarker;
+    setTimeout(() => {
+      const s0 = scr(192, 0, 0);
+      const s1 = scr(320, 0, 0);
+      viewport.dispatchEvent(pe('pointerdown', s0, 4));
+      viewport.dispatchEvent(pe('pointermove', s1, 4));
+      viewport.dispatchEvent(pe('pointerup', s1, 4));
+      const walls = store.getState().elements.filter((e) => e.kind === 'wall').length;
+      setInterval(() => (document.title = `QACORNER armed=${armed} walls=${walls}`), 400);
+    }, 700);
+  }, 1800);
+}
+if (params.get('qa') === 'orient') {
+  // mark the seed door as the main entrance, then face it due east (90°)
+  setTimeout(() => {
+    const door = store.getState().elements.find((e) => e.kind === 'door');
+    if (door) store.setMainEntrance(door.id);
+    const before = frontDoorBearing();
+    orientBuilding(90);
+    const after = frontDoorBearing();
+    setInterval(() => (document.title = `QAORIENT ${before?.toFixed(0)}->${after?.toFixed(0)} (target 90)`), 400);
+    rig.toTopView();
+  }, 1800);
+}
+if (params.get('qa') === 'demolish') {
+  // arm demolish, click the seed room's south wall — it (and its door) should vanish
+  setTimeout(() => {
+    pointer.setTool(new RemoveWallTool(toolCtx));
+    const wall = store.getState().elements.find((e): e is import('./types').Wall => e.kind === 'wall' && Math.abs(e.a.z) < 1 && Math.abs(e.b.z) < 1);
+    const before = store.getState().elements.filter((e) => e.kind === 'wall').length;
+    if (wall) {
+      const rect = host.canvas.getBoundingClientRect();
+      const v = new THREE.Vector3(i2m((wall.a.x + wall.b.x) / 2), i2m(48), i2m((wall.a.z + wall.b.z) / 2)).project(rig.camera);
+      const x = rect.left + ((v.x + 1) / 2) * rect.width;
+      const y = rect.top + ((1 - v.y) / 2) * rect.height;
+      const ev = (t: string): PointerEvent => new PointerEvent(t, { clientX: x, clientY: y, pointerId: 7, button: 0, bubbles: true });
+      viewport.dispatchEvent(ev('pointerdown'));
+      viewport.dispatchEvent(ev('pointerup'));
+    }
+    const after = store.getState().elements.filter((e) => e.kind === 'wall').length;
+    setInterval(() => (document.title = `QADEMOLISH walls ${before}->${after}`), 400);
+  }, 2000);
 }
 if (params.get('qa') === 'refill') {
   // fill the room, then re-fill with a different finish: the old slab must be

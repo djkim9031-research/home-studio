@@ -1417,6 +1417,18 @@ button.ui-btn.danger:hover {
   box-shadow: var(--shadow);
   padding: 8px;
 }
+.hs-orient {
+  bottom: 272px;
+  padding: 6px 8px 8px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.hs-orient.disabled {
+  opacity: 0.5;
+}
+.hs-orient input {
+  font: inherit;
+}
 .hs-mini-head {
   font-size: 12px;
   font-weight: 600;
