@@ -78,6 +78,9 @@ export function buildToolbar(root: HTMLElement, project: HomeProject, actions: T
   const gridBtn = btn(gView, 'Grid', 'Show the 1 ft × 1 ft reference grid', () =>
     store.setSetting('showGrid', !store.getState().settings.showGrid),
   );
+  const labelBtn = btn(gView, 'Labels', 'Show room name labels in the 3D scene (the floor plan keeps them)', () =>
+    store.setSetting('showRoomLabels', !store.getState().settings.showRoomLabels),
+  );
 
   const gHist = group();
   const undoBtn = btn(gHist, '↶', 'Undo (Ctrl+Z)', () => store.undo());
@@ -94,6 +97,7 @@ export function buildToolbar(root: HTMLElement, project: HomeProject, actions: T
     cutBtn.classList.toggle('active', s.cutaway);
     cutBtn.textContent = s.cutaway ? 'Cutaway' : 'Full walls';
     gridBtn.classList.toggle('active', s.settings.showGrid);
+    labelBtn.classList.toggle('active', s.settings.showRoomLabels);
     undoBtn.disabled = !store.canUndo();
     redoBtn.disabled = !store.canRedo();
     // title mode caption

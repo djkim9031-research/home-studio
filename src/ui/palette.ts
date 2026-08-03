@@ -283,7 +283,7 @@ export function buildPalette(root: HTMLElement, onArm: (spec: ArmSpec, card: HTM
     const pw = numInput('W"', 48, 4, 480);
     const ph = numInput('H"', 48, 4, 240);
     const px = numInput('from edge x"', 12, 0, 480);
-    const py = numInput('from floor y"', 24, 0, 240);
+    const py = numInput('from floor y"', 0, 0, 240);
     byCat.set('wallpaper', [
       card(THUMBS.wallpaper, 'Accent wallpaper — a patch of a given size, offset from the nearest wall edge; click a wall', [tex.el, col.el, pw.el, ph.el, px.el, py.el, swatches], () => ({
         tool: 'wallpaper',

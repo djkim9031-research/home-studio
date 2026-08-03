@@ -157,24 +157,104 @@ export function finishFacingPoint(elements: PlacedElement[], floor: number, p: V
   return regionFinish(elements, floor, regionAt(rooms, p));
 }
 
+/** Resolve the finish a single wall face shows at length `t`, EXACTLY as the
+ * renderer's `faceAt` does: a covering span wins, else the nearest span within a
+ * small gap, else the wall's own base finish. (The legacy whole-face finish is
+ * used only when the face has no spans array at all.) Keeping this in lockstep
+ * with the renderer is what stops a corner post/cap from disagreeing with the
+ * wall surface it continues. */
+function resolveFaceFinish(
+  spans: FaceSpan[] | undefined,
+  whole: WallFace | undefined,
+  base: { textureId: string; color: string },
+  t: number,
+): { textureId: string; color: string } {
+  if (spans) {
+    const sp = spans.find((s) => t >= Math.min(s.from, s.to) - 0.01 && t <= Math.max(s.from, s.to) + 0.01);
+    if (sp) return { textureId: sp.textureId, color: sp.color };
+    let best: FaceSpan | null = null;
+    let bestD = 14;
+    for (const s of spans) {
+      const d = t < s.from ? s.from - t : t - s.to;
+      if (d >= 0 && d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    return best ? { textureId: best.textureId, color: best.color } : base;
+  }
+  return whole ? { textureId: whole.textureId, color: whole.color } : base;
+}
+
 /** The finish of the wall face that meets `p` and points along (dirx,dirz) — a
- * corner post's side is coplanar with exactly such a face and must continue it,
- * so the edge matches its own adjacent wall rather than a region-wide guess. */
-export function edgeFinishFacing(elements: PlacedElement[], floor: number, p: Vec2, dirx: number, dirz: number): { textureId: string; color: string } | null {
-  for (const w of floorWalls(elements, floor)) {
-    const atA = Math.hypot(w.a.x - p.x, w.a.z - p.z) < 6;
-    const atB = Math.hypot(w.b.x - p.x, w.b.z - p.z) < 6;
+ * corner post's side is coplanar with exactly such a face and must continue it.
+ * A post side facing a given space must wear the finish of the wall face that
+ * actually borders THAT space: among every wall meeting the corner it prefers the
+ * one whose (dirx,dirz)-facing side borders the same region the post side faces
+ * (so a brick exterior face never bleeds onto a post edge that fronts an interior
+ * room, even when an exterior wall runs collinear with the interior one), and
+ * among those picks the best-aligned. Returns that neighbour's own rendered
+ * finish — never the owning wall's colour. */
+export function edgeFinishFacing(
+  elements: PlacedElement[],
+  floor: number,
+  p: Vec2,
+  dirx: number,
+  dirz: number,
+  radius = 6,
+): { textureId: string; color: string } | null {
+  const walls = floorWalls(elements, floor);
+  const rooms = roomsFor(elements, floor);
+  const SAMP = 6; // sample a few inches off the corner to read the space each side fronts
+  const region = regionAt(rooms, { x: p.x + dirx * SAMP, z: p.z + dirz * SAMP });
+  // a post side facing OUTSIDE that is actually a thin gap wedged against another
+  // wall just ahead is "blocked", not open exterior: leave it bare rather than let
+  // an exterior (e.g. brick) face bleed through the seam between mis-aligned walls.
+  if (region < 0) {
+    const ahead = { x: p.x + dirx * (radius + 3), z: p.z + dirz * (radius + 3) };
+    const capped = walls.some((w) => {
+      if (Math.hypot(w.a.x - p.x, w.a.z - p.z) <= radius || Math.hypot(w.b.x - p.x, w.b.z - p.z) <= radius) return false;
+      const abx = w.b.x - w.a.x;
+      const abz = w.b.z - w.a.z;
+      const l2 = abx * abx + abz * abz || 1;
+      const u = Math.max(0, Math.min(1, ((ahead.x - w.a.x) * abx + (ahead.z - w.a.z) * abz) / l2));
+      return Math.hypot(w.a.x + abx * u - ahead.x, w.a.z + abz * u - ahead.z) <= w.thickIn;
+    });
+    if (capped) return null;
+  }
+  let best: { textureId: string; color: string } | null = null;
+  let bestScore = 0.7; // must be reasonably coplanar with the post side
+  for (const w of walls) {
+    const atA = Math.hypot(w.a.x - p.x, w.a.z - p.z) <= radius;
+    const atB = Math.hypot(w.b.x - p.x, w.b.z - p.z) <= radius;
     if (!atA && !atB) continue; // this wall doesn't meet the corner
     const d = wallDir(w);
     const nx = -d.z; // +normal
     const nz = d.x;
-    const t = atA ? 0 : wallLen(w);
-    // continue the adjacent face's finish: its span, else its whole-face, else
-    // the wall's own base finish (never a bare colour or a neighbour's paint)
-    if (nx * dirx + nz * dirz > 0.9) return spanFinishAt(w.faceNegSpans, w.faceNeg, t) ?? { textureId: w.textureId, color: w.color };
-    if (-nx * dirx - nz * dirz > 0.9) return spanFinishAt(w.facePosSpans, w.facePos, t) ?? { textureId: w.textureId, color: w.color };
+    const len = wallLen(w);
+    const t = atA ? 0 : len;
+    // read each face's region a little inside the run, where it's unambiguous
+    const tin = atA ? Math.min(SAMP, len / 2) : len - Math.min(SAMP, len / 2);
+    const base = { textureId: w.textureId, color: w.color };
+    // +normal side of the wall is painted by faceNeg*, -normal side by facePos*.
+    // A region match dominates alignment so the coplanar-but-wrong-side face loses.
+    const dotPos = nx * dirx + nz * dirz;
+    if (dotPos > 0.7) {
+      const score = (faceRegionAt(w, true, tin, rooms) === region ? 1000 : 0) + dotPos;
+      if (score > bestScore) {
+        bestScore = score;
+        best = resolveFaceFinish(w.faceNegSpans, w.faceNeg, base, t);
+      }
+    }
+    if (-dotPos > 0.7) {
+      const score = (faceRegionAt(w, false, tin, rooms) === region ? 1000 : 0) - dotPos;
+      if (score > bestScore) {
+        bestScore = score;
+        best = resolveFaceFinish(w.facePosSpans, w.facePos, base, t);
+      }
+    }
   }
-  return null;
+  return best;
 }
 
 /** For a wall with no exterior face: 'partition' when the SAME room sits on both

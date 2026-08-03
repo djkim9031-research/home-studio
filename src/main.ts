@@ -273,7 +273,9 @@ function applyFloorVisibility(): void {
   const s = store.getState();
   for (const entry of meshes.allEntries().values()) {
     const f = entry.group.userData.floor as number;
-    entry.group.visible = f <= s.activeFloor;
+    const onFloor = f <= s.activeFloor;
+    // room name chips can be toggled off in the 3D scene (the floor plan keeps them)
+    entry.group.visible = entry.group.userData.kind === 'room' ? onFloor && s.settings.showRoomLabels : onFloor;
   }
   ceilings.applyVisibility(s.activeFloor);
   host.invalidate();
@@ -355,7 +357,10 @@ store.subscribe((s, ev) => {
     refreshGrid();
     applyModeUI();
   }
-  if (ev.kind === 'settings') refreshGrid();
+  if (ev.kind === 'settings') {
+    refreshGrid();
+    applyFloorVisibility();
+  }
 });
 
 /** In the live View mode, hide the editing UI (palette + placed/edit panels)

@@ -3,7 +3,7 @@ import { formatFeetInchesFull } from '../core/format';
 import { pointInPolygon } from '../core/geometry';
 import { detectEnclosedRegions, fillRegion } from '../core/regionFill';
 import { faceGroupTarget, groupFaces, paintGroupPatches, regroupClearPatches } from '../core/wallGroups';
-import { clampOpeningCenter, openingFits, projectOnWall, wallDir, wallLen, wallPointAt } from '../core/validity';
+import { cantileverOk, clampOpeningCenter, openingFits, projectOnWall, stairFootprint, wallDir, wallLen, wallPointAt } from '../core/validity';
 import * as store from '../state/store';
 import type { GhostState } from '../state/store';
 import { floorBaseIn, type FaceSpan, type FloorIndex, type PlacedElement, type Vec2, type Wall, type WallFace } from '../types';
@@ -348,13 +348,15 @@ export class WallTool implements Tool {
     }
     ({ a: ra, b: rb } = magnetThickness(this.arm.shape, ra, rb, wallsOn(store.getState().activeFloor), this.arm.thickIn));
     const { runs, label, valid } = this.runsFor(ra, rb);
+    const floorNow = store.getState().activeFloor;
+    const supported = cantileverOk(store.getState().elements, floorNow, runs.flatMap((r) => [r.a, r.b]));
     store.setGhost({
       kind: 'wall',
-      floor: store.getState().activeFloor,
+      floor: floorNow,
       runs,
       heightIn: this.arm.heightIn,
       thickIn: this.arm.thickIn,
-      valid,
+      valid: valid && supported,
       label,
     });
   }
@@ -378,6 +380,11 @@ export class WallTool implements Tool {
     if (!valid) return; // a bare click never places
     const b = rb;
     const floorIdx = store.getState().activeFloor;
+    if (!cantileverOk(store.getState().elements, floorIdx, runs.flatMap((r) => [r.a, r.b]))) {
+      this.ctx.toast('Unsupported — a wall can overhang the floor below by at most 20%.');
+      if (this.arm.shape === 'line') this.lastB = b;
+      return;
+    }
     // where a new run overlaps an existing wall, keep only its NON-overlapping
     // stretches — the shared part is left to the existing wall (which keeps its
     // paint and wallpaper), and the extending part is not lost
@@ -878,6 +885,14 @@ export class FloorFillTool implements Tool {
     this.downAt = null;
     if (!floor || !down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 6) return;
     const s = store.getState();
+    // a stair rising from the storey below owns its stairwell — no flooring there
+    const overStairwell = s.elements.some(
+      (e) => e.kind === 'stair' && e.floor === s.activeFloor - 1 && pointInPolygon(floor, stairFootprint(e)),
+    );
+    if (overStairwell) {
+      this.ctx.toast("That's the stairwell — you can't floor over it.");
+      return;
+    }
     const res = fillRegion(s.elements, s.activeFloor, floor);
     if (!res.ok) {
       this.ctx.toast(
@@ -885,6 +900,10 @@ export class FloorFillTool implements Tool {
           ? 'Draw some walls first — flooring fills a walled-in area.'
           : "That area isn't enclosed by walls yet.",
       );
+      return;
+    }
+    if (!cantileverOk(s.elements, s.activeFloor, res.polygon)) {
+      this.ctx.toast('Unsupported — a floor can overhang the storey below by at most 20%.');
       return;
     }
     // a new floor over an already-floored area replaces the old slab

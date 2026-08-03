@@ -175,14 +175,67 @@ export function buildMinimap(
       g.font = 'bold 10px system-ui';
     }
 
-    // scale note (bottom-left, clear of the compass)
-    g.fillStyle = '#a99f8d';
-    g.font = '9px system-ui';
-    g.textAlign = 'left';
-    g.textBaseline = 'bottom';
-    g.fillText(`${formatFeetInches(spanX)} wide`, 4, SIZE - 3);
+    // overall plan size as fixed dimension arrows: the WORLD bounding extents
+    // (not the rotated span), so the numbers stay put at every camera angle
+    let wMinX = Infinity;
+    let wMaxX = -Infinity;
+    let wMinZ = Infinity;
+    let wMaxZ = -Infinity;
+    for (const w of walls) {
+      for (const p of [w.a, w.b]) {
+        wMinX = Math.min(wMinX, p.x);
+        wMaxX = Math.max(wMaxX, p.x);
+        wMinZ = Math.min(wMinZ, p.z);
+        wMaxZ = Math.max(wMaxZ, p.z);
+      }
+    }
+    dimArrow(false, 8, PAD, SIZE - PAD, formatFeetInches(wMaxX - wMinX)); // width, across the top
+    dimArrow(true, 8, PAD, SIZE - PAD, formatFeetInches(wMaxZ - wMinZ)); // depth, down the left edge
 
     drawCompass(alpha);
+  };
+
+  // a double-headed dimension arrow with a centred label, tucked just inside the
+  // panel edge: `vertical` runs down the left at x=`fixed` from a→b, else across
+  // the top at y=`fixed`. The label reads a constant world measurement.
+  const dimArrow = (vertical: boolean, fixed: number, a: number, b: number, label: string): void => {
+    const h = 3;
+    g.strokeStyle = '#b07a4a';
+    g.fillStyle = '#b07a4a';
+    g.lineWidth = 1;
+    g.beginPath();
+    if (vertical) {
+      g.moveTo(fixed, a);
+      g.lineTo(fixed, b);
+      g.moveTo(fixed - h, a + h);
+      g.lineTo(fixed, a);
+      g.lineTo(fixed + h, a + h);
+      g.moveTo(fixed - h, b - h);
+      g.lineTo(fixed, b);
+      g.lineTo(fixed + h, b - h);
+    } else {
+      g.moveTo(a, fixed);
+      g.lineTo(b, fixed);
+      g.moveTo(a + h, fixed - h);
+      g.lineTo(a, fixed);
+      g.lineTo(a + h, fixed + h);
+      g.moveTo(b - h, fixed - h);
+      g.lineTo(b, fixed);
+      g.lineTo(b - h, fixed + h);
+    }
+    g.stroke();
+    g.font = 'bold 9px system-ui';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const w = g.measureText(label).width + 4;
+    g.save();
+    g.translate(vertical ? fixed + 6 : (a + b) / 2, vertical ? (a + b) / 2 : fixed + 6);
+    if (vertical) g.rotate(-Math.PI / 2);
+    g.fillStyle = 'rgba(243,239,230,0.9)'; // panel-coloured halo so the number reads
+    g.fillRect(-w / 2, -6, w, 12);
+    g.fillStyle = '#8a5a2a';
+    g.fillText(label, 0, 0);
+    g.restore();
   };
 
   // little compass, bottom-right of the plan; N points where true north sits

@@ -3,8 +3,9 @@
 export const IN = 0.0254;
 export const i2m = (n: number): number => n * IN;
 
-/** structural gap between a story's wall top and the next story's floor */
-export const JOIST_T = 14;
+/** structural floor slab between a story's wall top and the next story's floor:
+ * kept thin so stacked storeys sit almost flush, while still sealing light */
+export const JOIST_T = 5;
 
 export const DEFAULT_WALL_H = 96;
 export const DEFAULT_WALL_T = 5;

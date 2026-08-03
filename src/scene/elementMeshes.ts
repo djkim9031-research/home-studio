@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { COLORS, i2m, IN, JOIST_T } from '../constants';
 import { finishMaterial, finishRepeatPerIn } from '../data/registry';
-import { openingsOf, wallDir, wallLen, wallPointAt } from '../core/validity';
+import { openingsOf, stairFootprint, wallDir, wallLen, wallPointAt } from '../core/validity';
+import { pointInPolygon } from '../core/geometry';
 import { edgeFinishFacing, spanFinishAt } from '../core/wallGroups';
 import {
   floorBaseIn,
@@ -261,13 +262,20 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     }
     return finishMat(whole);
   };
-  // a thickness edge takes its OWN wall's finish — never a region-wide guess (a
-  // room may hold a differently-painted wall). A cap shows this wall's finish at
-  // that end (whichever side is painted); an unpainted wall's edge stays bare.
+  // A wall end that welds into a corner is covered by the corner post, so its cap
+  // must read like that post — the finish of whatever region the cap fronts
+  // (region-aware, so a brick exterior face never bleeds onto a cap facing an
+  // interior room). A FREE end (no neighbour) instead wraps the wall's own face
+  // so a partition end reads as a continuous interior patch.
+  const weldTol = wall.thickIn + 3;
+  const welds = (p: Vec2): boolean =>
+    floorWalls.some(
+      (e) => e.id !== wall.id && (Math.hypot(e.a.x - p.x, e.a.z - p.z) <= weldTol || Math.hypot(e.b.x - p.x, e.b.z - p.z) <= weldTol),
+    );
   const capFinish = (t: number): { textureId: string; color: string } | null =>
     spanFinishAt(wall.facePosSpans, wall.facePos, t) ?? spanFinishAt(wall.faceNegSpans, wall.faceNeg, t);
-  const endAFin = capFinish(0);
-  const endBFin = capFinish(len);
+  const endAFin = welds(wall.a) ? edgeFinishFacing(elements, wall.floor, wall.a, -dir.x, -dir.z, weldTol) : capFinish(0);
+  const endBFin = welds(wall.b) ? edgeFinishFacing(elements, wall.floor, wall.b, dir.x, dir.z, weldTol) : capFinish(len);
   const endAMat = endAFin ? finishMat(endAFin) : mat;
   const endBMat = endBFin ? finishMat(endBFin) : mat;
 
@@ -332,7 +340,6 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   // unfilled outer notch (and their caps z-fight). Fill it with ONE square post
   // per corner — each VERTICAL side continues the specific wall face it is
   // coplanar with (top bare), owned by the lowest-id wall so it is drawn once.
-  const weldTol = wall.thickIn + 3;
   const cornerPost = (p: Vec2): void => {
     const here = floorWalls.filter(
       (e) => Math.hypot(e.a.x - p.x, e.a.z - p.z) <= weldTol || Math.hypot(e.b.x - p.x, e.b.z - p.z) <= weldTol,
@@ -343,7 +350,7 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
     // each post side takes ONLY its coplanar wall face's finish (bare if that
     // face is unpainted) — never borrowing a colour from elsewhere in the room
     const postMat = (dx: number, dz: number): THREE.MeshStandardMaterial => {
-      const f = edgeFinishFacing(elements, wall.floor, p, dx, dz);
+      const f = edgeFinishFacing(elements, wall.floor, p, dx, dz, weldTol);
       return f ? finishMat(f) : mat;
     };
     const post = new THREE.Mesh(geo, [postMat(1, 0), postMat(-1, 0), mat, mat, postMat(0, 1), postMat(0, -1)]);
@@ -554,6 +561,16 @@ function buildSlab(slab: FloorSlab, elements: PlacedElement[]): { group: THREE.G
     else shape.lineTo(p.x, p.z);
   });
   shape.closePath();
+  // a stair rising from the storey below opens a stairwell here — flooring can't
+  // cover it, so punch the same hole out of the finished floor
+  for (const st of elements) {
+    if (st.kind !== 'stair' || st.floor !== slab.floor - 1) continue;
+    if (!pointInPolygon({ x: st.x, z: st.z }, slab.polygon)) continue;
+    const hole = new THREE.Path();
+    stairFootprint(st).forEach((p, i) => (i === 0 ? hole.moveTo(p.x, p.z) : hole.lineTo(p.x, p.z)));
+    hole.closePath();
+    shape.holes.push(hole);
+  }
   const geo = new THREE.ShapeGeometry(shape);
   // shape (x, y=worldZ) -> floor plane: rotateX(+90°) lands positions right
   // but the face points down; flipping winding via scale(y:-1) points it up

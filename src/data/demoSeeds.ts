@@ -72,7 +72,7 @@ export function seedTwoFloor(): HomeProject {
   const up3 = wall(192, 96, 0, 96, 1, 96, 'woodPanel', '#e6d9be');
   const up4 = wall(0, 96, 0, 0, 1);
   p.elements.push(
-    { kind: 'stair', id: id(), floor: 0, x: 96, z: 108, yawDeg: 0, widthIn: 36, runIn: 132, flights: 1, styleId: 'openStraight', textureId: 'oakPlank', color: '#ffffff' },
+    { kind: 'stair', id: id(), floor: 0, x: 96, z: 48, yawDeg: 90, widthIn: 36, runIn: 132, flights: 1, styleId: 'openStraight', textureId: 'oakPlank', color: '#ffffff' },
     up1,
     up2,
     up3,
