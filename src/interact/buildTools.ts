@@ -662,6 +662,33 @@ export interface StairArm {
   color: string;
 }
 
+/** True when a stair's footprint would overlap any wall's thickness band —
+ * stairs are structural and must not intersect walls (unlike doors/windows). */
+function stairHitsWall(x: number, z: number, yawDeg: number, widthIn: number, runIn: number, flights: 1 | 2, walls: Wall[]): boolean {
+  const halfW = flights === 2 ? widthIn + 1 : widthIn / 2;
+  const halfD = runIn / 2;
+  const th = -yawDeg * (Math.PI / 180);
+  const cos = Math.cos(th);
+  const sin = Math.sin(th);
+  const inside = (px: number, pz: number, margin: number): boolean => {
+    const dx = px - x;
+    const dz = pz - z;
+    const lx = dx * cos - dz * sin; // world → stair-local
+    const lz = dx * sin + dz * cos;
+    return Math.abs(lx) <= halfW + margin && Math.abs(lz) <= halfD + margin;
+  };
+  for (const w of walls) {
+    const len = Math.hypot(w.b.x - w.a.x, w.b.z - w.a.z) || 1;
+    const n = Math.max(2, Math.ceil(len / 3));
+    const m = w.thickIn / 2 - 1; // allow flush placement, block real overlap
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      if (inside(w.a.x + (w.b.x - w.a.x) * t, w.a.z + (w.b.z - w.a.z) * t, m)) return true;
+    }
+  }
+  return false;
+}
+
 export class StairTool implements Tool {
   private arm: StairArm;
   private ctx: ToolContext;
@@ -695,6 +722,7 @@ export class StairTool implements Tool {
       store.setGhost({ kind: 'stair', floor: s.activeFloor, x: this.at.x, z: this.at.z, yawDeg: this.yawDeg, widthIn: this.arm.widthIn, runIn: this.arm.runIn, flights: this.arm.flights, valid: false });
       return;
     }
+    const clear = !stairHitsWall(this.at.x, this.at.z, this.yawDeg, this.arm.widthIn, this.arm.runIn, this.arm.flights, wallsOn(s.activeFloor));
     store.setGhost({
       kind: 'stair',
       floor: s.activeFloor,
@@ -704,7 +732,7 @@ export class StairTool implements Tool {
       widthIn: this.arm.widthIn,
       runIn: this.arm.runIn,
       flights: this.arm.flights,
-      valid: true,
+      valid: clear,
     });
   }
 
@@ -775,10 +803,12 @@ export class StairTool implements Tool {
       resolve: (v) => {
         const x = corner.x + signX * v.x;
         const z = corner.z + signZ * v.y;
+        const valid = !stairHitsWall(x, z, yaw, widthIn, runIn, flights, wallsOn(floorIdx));
         return {
-          ghost: { kind: 'stair', floor: floorIdx, x, z, yawDeg: yaw, widthIn, runIn, flights, valid: true },
+          ghost: { kind: 'stair', floor: floorIdx, x, z, yawDeg: yaw, widthIn, runIn, flights, valid },
           anchor: { x: corner.x, y: baseY, z: corner.z },
-          valid: true,
+          valid,
+          invalidMsg: 'A stair can’t overlap a wall — nudge it into clear floor.',
           element: {
             kind: 'stair',
             floor: floorIdx,
