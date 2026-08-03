@@ -527,7 +527,10 @@ function buildStair(st: Stair, elements: PlacedElement[]): { group: THREE.Group;
     flight(0, -st.runIn / 2, st.runIn, 0, rise, 1, st.widthIn);
   } else {
     const landD = Math.max(36, st.widthIn);
-    const runEach = (st.runIn - landD) / 2;
+    // each flight runs the FULL depth up to the landing (they sit side by side
+    // in two lanes); the landing joins the top of the first to the foot of the
+    // second, so a flight is runIn − landD deep, not half of it
+    const runEach = st.runIn - landD;
     const half = rise / 2;
     const lane = st.widthIn / 2 + 0.5;
     flight(-lane, -st.runIn / 2, runEach, 0, half, 1, st.widthIn);

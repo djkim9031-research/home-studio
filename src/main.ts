@@ -483,6 +483,14 @@ if (params.get('qa') === 'rectio') {
     document.title = `QARECTIO walls=${walls.length} faces=[${faces}]`;
   }, 2500);
 }
+if (params.get('qa') === 'stair2') {
+  // a 2-flight U-turn stair: the first flight must reach the landing
+  setTimeout(() => {
+    store.placeElement({ kind: 'stair', floor: 0, x: 96, z: 72, yawDeg: 0, widthIn: 36, runIn: 132, flights: 2, styleId: 'openStraight', textureId: 'oakPlank', color: '#c8a06a' } as never);
+    if (params.get('top') === '1') rig.toTopView();
+    else rig.toDefaultView();
+  }, 2600);
+}
 if (params.get('qa') === 'accent0') {
   // two patches on the front exterior wall: offset 0 (should sit on the floor)
   // and offset 48 (a foot and a half up) — to see the floor datum clearly
@@ -491,10 +499,7 @@ if (params.get('qa') === 'accent0') {
     const south = s.elements.find((e) => e.kind === 'wall' && Math.abs(e.a.z) < 1 && Math.abs(e.b.z) < 1);
     if (south && south.kind === 'wall') {
       store.updateElement(south.id, {
-        patches: [
-          { face: 'pos', fromT: 10, toT: 50, y0: 0, y1: 40, textureId: 'brick', color: '#c0392b' },
-          { face: 'pos', fromT: 100, toT: 140, y0: 48, y1: 88, textureId: 'brick', color: '#2a6db5' },
-        ],
+        patches: [{ face: 'pos', fromT: 70, toT: 110, y0: 0, y1: 90, textureId: 'brick', color: '#c0392b' }],
       } as never);
     }
     rig.toDefaultView();
