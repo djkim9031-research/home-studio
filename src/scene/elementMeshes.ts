@@ -191,6 +191,30 @@ function buildRoomLabel(room: Room, elements: PlacedElement[]): { group: THREE.G
   return { group, clipMats: [] };
 }
 
+interface Rect { t0: number; t1: number; b0: number; b1: number }
+
+/** A rectangle with the given holes removed, as a list of sub-rectangles. */
+function rectMinusHoles(rect: Rect, holes: Rect[]): Rect[] {
+  let pieces: Rect[] = [rect];
+  for (const h of holes) {
+    const next: Rect[] = [];
+    for (const p of pieces) {
+      if (h.t1 <= p.t0 || h.t0 >= p.t1 || h.b1 <= p.b0 || h.b0 >= p.b1) {
+        next.push(p); // no overlap
+        continue;
+      }
+      if (h.b0 > p.b0) next.push({ t0: p.t0, t1: p.t1, b0: p.b0, b1: h.b0 }); // below
+      if (h.b1 < p.b1) next.push({ t0: p.t0, t1: p.t1, b0: h.b1, b1: p.b1 }); // above
+      const mb0 = Math.max(p.b0, h.b0);
+      const mb1 = Math.min(p.b1, h.b1);
+      if (h.t0 > p.t0) next.push({ t0: p.t0, t1: h.t0, b0: mb0, b1: mb1 }); // left
+      if (h.t1 < p.t1) next.push({ t0: h.t1, t1: p.t1, b0: mb0, b1: mb1 }); // right
+    }
+    pieces = next;
+  }
+  return pieces;
+}
+
 function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group; clipMats: THREE.Material[] } {
   const group = new THREE.Group();
   const baseY = floorBaseIn(elements, wall.floor);
@@ -331,31 +355,36 @@ function buildWall(wall: Wall, elements: PlacedElement[]): { group: THREE.Group;
   cornerPost(wall.a);
   cornerPost(wall.b);
 
-  // wallpaper patches: a thin decal quad proud of the chosen face
+  // wallpaper patches: a thin decal quad proud of the chosen face, clipped so it
+  // never covers a door or window (openings are holes in the wall)
+  const openingRects = openingsOf(elements, wall.id).map((o) => ({ t0: o.centerIn - o.widthIn / 2, t1: o.centerIn + o.widthIn / 2, b0: o.sillIn, b1: o.sillIn + o.heightIn }));
   const patchMats: THREE.Material[] = [];
   for (const p of wall.patches ?? []) {
-    const w = p.toT - p.fromT;
-    const h = p.y1 - p.y0;
-    if (w < 1 || h < 1) continue;
     const pmat = finishMaterial(p.textureId, p.color);
     pmat.side = THREE.DoubleSide;
-    patchMats.push(pmat);
-    const geo = new THREE.PlaneGeometry(i2m(w), i2m(h));
-    const rep = finishRepeatPerIn(p.textureId);
-    const uv = geo.attributes.uv as THREE.BufferAttribute;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w * rep, uv.getY(i) * h * rep);
-    uv.needsUpdate = true;
-    const mesh = new THREE.Mesh(geo, pmat);
-    const mid = wallPointAt(wall, (p.fromT + p.toT) / 2);
-    // face pos = plan +normal (-dz, dx); a plane's +z points that way after yaw
+    let used = false;
     const sign = p.face === 'pos' ? 1 : -1;
     const nrm = { x: -dir.z * sign, z: dir.x * sign };
     const off = wall.thickIn / 2 + 0.4;
-    mesh.position.set(i2m(mid.x + nrm.x * off), i2m(baseY + (p.y0 + p.y1) / 2), i2m(mid.z + nrm.z * off));
-    mesh.rotation.y = yaw + (p.face === 'pos' ? 0 : Math.PI);
-    mesh.castShadow = false;
-    mesh.receiveShadow = true;
-    group.add(mesh);
+    const rep = finishRepeatPerIn(p.textureId);
+    for (const r of rectMinusHoles({ t0: p.fromT, t1: p.toT, b0: p.y0, b1: p.y1 }, openingRects)) {
+      const w = r.t1 - r.t0;
+      const h = r.b1 - r.b0;
+      if (w < 1 || h < 1) continue;
+      used = true;
+      const geo = new THREE.PlaneGeometry(i2m(w), i2m(h));
+      const uv = geo.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w * rep, uv.getY(i) * h * rep);
+      uv.needsUpdate = true;
+      const mesh = new THREE.Mesh(geo, pmat);
+      const mid = wallPointAt(wall, (r.t0 + r.t1) / 2);
+      mesh.position.set(i2m(mid.x + nrm.x * off), i2m(baseY + (r.b0 + r.b1) / 2), i2m(mid.z + nrm.z * off));
+      mesh.rotation.y = yaw + (p.face === 'pos' ? 0 : Math.PI);
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+    if (used) patchMats.push(pmat);
   }
 
   void wallUp;

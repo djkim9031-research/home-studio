@@ -484,12 +484,20 @@ if (params.get('qa') === 'rectio') {
   }, 2500);
 }
 if (params.get('qa') === 'accent0') {
-  // a patch at offset-from-floor 0 should sit flush on the floor
+  // two patches on the front exterior wall: offset 0 (should sit on the floor)
+  // and offset 48 (a foot and a half up) — to see the floor datum clearly
   setTimeout(() => {
-    const wall = store.getState().elements.find((e) => e.kind === 'wall' && e.textureId !== 'brick');
-    if (wall && wall.kind === 'wall') {
-      store.updateElement(wall.id, { patches: [{ face: 'pos', fromT: 20, toT: 100, y0: 0, y1: 60, textureId: 'brick', color: '#c0392b' }] } as never);
+    const s = store.getState();
+    const south = s.elements.find((e) => e.kind === 'wall' && Math.abs(e.a.z) < 1 && Math.abs(e.b.z) < 1);
+    if (south && south.kind === 'wall') {
+      store.updateElement(south.id, {
+        patches: [
+          { face: 'pos', fromT: 10, toT: 50, y0: 0, y1: 40, textureId: 'brick', color: '#c0392b' },
+          { face: 'pos', fromT: 100, toT: 140, y0: 48, y1: 88, textureId: 'brick', color: '#2a6db5' },
+        ],
+      } as never);
     }
+    rig.toDefaultView();
   }, 2600);
 }
 if (params.get('qa') === 'painthover') {
